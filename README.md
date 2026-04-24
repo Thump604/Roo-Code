@@ -131,6 +131,18 @@ pnpm --filter @roo-code/cli check-types
 pnpm --filter @roo-code/cli test
 ```
 
+Run non-interactive smoke tests (deterministic, no live inference needed):
+
+```bash
+pnpm --filter @roo-code/cli build && python3 apps/cli/scripts/noninteractive/run.py --match fixture
+```
+
+Run with live inference (requires a running model server):
+
+```bash
+pnpm --filter @roo-code/cli build && python3 apps/cli/scripts/noninteractive/run.py --live
+```
+
 Run monorepo checks:
 
 ```bash

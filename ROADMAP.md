@@ -44,8 +44,13 @@ Implemented:
 - stable text, JSON, and stream-json output contracts
 - PTY and non-interactive smoke tests for terminal paths (ping, shutdown,
   orphan-approve, init-and-ack, and skipped live-inference scenarios)
+- deterministic fixture-backed smoke tests for SSE streaming, reasoning
+  tags, tool calls, slow-stream cancellation, and malformed-stream
+  handling — no live inference needed
 - same-type consecutive approval coverage with integration tests proving
   distinct approvalIds, payload preservation, and fail-closed malformed IDs
+- approval protocol integration tests through the real JsonEventEmitter
+  proving requestId injection, fail-closed mismatch, and legacy compat
 - NDJSON stdin control protocol with approval request/response lifecycle
 - reasoning tag extraction via shared ModelAdapter and TagMatcher
 - abort signal propagation to all OpenAI-SDK-based providers
@@ -63,6 +68,14 @@ features should be layered on deliberately, not forced into every prompt.
 Mesa should make human-machine collaboration explicit and controllable. The TUI
 should not just be a chat window; it should be a task control surface for
 autonomous and semi-autonomous coding work.
+
+Implemented:
+
+- local task index with CRUD, pinning, and corrupted-index recovery
+- prompt summary sanitization (no secrets, truncated)
+- index auto-trimming with pinned entries surviving
+
+In progress:
 
 - recent-task dashboard across terminal sessions
 - task pinning for important long-running work
@@ -83,6 +96,20 @@ made recoverable.
 
 Automation needs physical interception points. Hooks are the difference between
 "the model probably follows instructions" and "the harness enforces policy."
+
+Implemented:
+
+- hook type schema: task_start, task_end, before_tool, after_tool,
+  before_model_request, after_model_response, approval_request
+- config discovery: .mesa/hooks.json preferred, .roo/hooks.json fallback
+- hook runner: JSON event on stdin, JSON result on stdout, non-zero exit
+  or timeout is fail-closed
+- before_tool can return allow/deny; deny blocks tool execution
+- command as argv array (not shell string) for safety
+- configurable timeoutMs (default 10s, max 60s)
+- before_tool and after_tool wired; remaining events documented as planned
+
+In progress:
 
 - pre-tool, post-tool, pre-edit, post-edit, pre-shell, and post-shell hooks
 - provider request/response hooks for model-specific cleanup and validation
