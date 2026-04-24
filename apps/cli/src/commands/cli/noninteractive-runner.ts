@@ -133,6 +133,15 @@ export async function runNonInteractiveCliSession({
 		}
 
 		runtimeDisposed = true
+
+		// Cancel the active task before cleanup so the task loop and provider
+		// streams get a proper abort signal instead of a raw socket close.
+		try {
+			sessionController.cancelTask()
+		} catch {
+			// Task may already be done or controller not ready — proceed with cleanup.
+		}
+
 		await sessionLifecycle?.dispose?.()
 		sessionLifecycle = null
 		jsonEmitter?.detach()

@@ -413,6 +413,16 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 		// Create AbortController for cancellation
 		this.abortController = new AbortController()
 
+		// Link the Task-level abort signal so cancelCurrentRequest() reaches this stream
+		if (metadata?.signal) {
+			const localController = this.abortController
+			if (metadata.signal.aborted) {
+				localController.abort()
+			} else {
+				metadata.signal.addEventListener("abort", () => localController.abort(), { once: true })
+			}
+		}
+
 		// Build per-request headers using taskId when available, falling back to sessionId
 		const taskId = metadata?.taskId
 		const userAgent = `roo-code/${Package.version} (${os.platform()} ${os.release()}; ${os.arch()}) node/${process.version.slice(1)}`
@@ -560,6 +570,16 @@ export class OpenAiNativeHandler extends BaseProvider implements SingleCompletio
 
 		// Create AbortController for cancellation
 		this.abortController = new AbortController()
+
+		// Link the Task-level abort signal so cancelCurrentRequest() reaches this stream
+		if (metadata?.signal) {
+			const localController = this.abortController
+			if (metadata.signal.aborted) {
+				localController.abort()
+			} else {
+				metadata.signal.addEventListener("abort", () => localController.abort(), { once: true })
+			}
+		}
 
 		// Build per-request headers using taskId when available, falling back to sessionId
 		const taskId = metadata?.taskId

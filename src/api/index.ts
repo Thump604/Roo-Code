@@ -87,6 +87,13 @@ export interface ApiHandlerCreateMessageMetadata {
 	 * Only applies to providers that support function calling restrictions (e.g., Gemini).
 	 */
 	allowedFunctionNames?: string[]
+	/**
+	 * Optional AbortSignal from the Task-level AbortController.
+	 * When provided, providers should link this signal to their internal
+	 * AbortController so that Task.cancelCurrentRequest() propagates to
+	 * the underlying HTTP stream (fetch/SDK call).
+	 */
+	signal?: AbortSignal
 }
 
 export interface ApiHandler {
