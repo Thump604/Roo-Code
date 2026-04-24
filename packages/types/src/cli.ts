@@ -71,12 +71,14 @@ export type RooCliShutdownCommand = z.infer<typeof rooCliShutdownCommandSchema>
 
 export const rooCliApproveCommandSchema = rooCliCommandBaseSchema.extend({
 	command: z.literal("approve"),
+	approvalId: z.string().min(1).optional(),
 })
 
 export type RooCliApproveCommand = z.infer<typeof rooCliApproveCommandSchema>
 
 export const rooCliRejectCommandSchema = rooCliCommandBaseSchema.extend({
 	command: z.literal("reject"),
+	approvalId: z.string().min(1).optional(),
 })
 
 export type RooCliRejectCommand = z.infer<typeof rooCliRejectCommandSchema>
@@ -84,6 +86,7 @@ export type RooCliRejectCommand = z.infer<typeof rooCliRejectCommandSchema>
 export const rooCliRespondCommandSchema = rooCliCommandBaseSchema.extend({
 	command: z.literal("respond"),
 	text: z.string(),
+	approvalId: z.string().min(1).optional(),
 })
 
 export type RooCliRespondCommand = z.infer<typeof rooCliRespondCommandSchema>
@@ -201,6 +204,26 @@ export const rooCliControlEventSchema = rooCliStreamEventSchema.extend({
 })
 
 export type RooCliControlEvent = z.infer<typeof rooCliControlEventSchema>
+
+/**
+ * Typed schema for approval_request control events.
+ *
+ * This is a refinement of rooCliControlEventSchema — it validates the
+ * required fields that an approval_request MUST carry. Consumers can use
+ * this to narrow a parsed control event.
+ */
+export const rooCliApprovalRequestEventSchema = rooCliStreamEventSchema.extend({
+	type: z.literal("control"),
+	subtype: z.literal("approval_request"),
+	approvalId: z.string().min(1),
+	code: z.string().min(1),
+	command: rooCliCommandNameSchema,
+	content: z.string().optional(),
+	payload: z.string().optional(),
+	taskId: z.string().optional(),
+})
+
+export type RooCliApprovalRequestEvent = z.infer<typeof rooCliApprovalRequestEventSchema>
 
 export const rooCliFinalOutputSchema = z.object({
 	type: z.literal("result"),

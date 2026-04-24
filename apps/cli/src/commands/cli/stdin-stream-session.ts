@@ -640,15 +640,15 @@ export class StdinStreamSession {
 	// =========================================================================
 
 	handleApproveCommand(stdinCommand: RooCliApproveCommand): void {
-		this.approvalAdapter.approve(stdinCommand.requestId)
+		this.approvalAdapter.approve(stdinCommand.requestId, stdinCommand.approvalId)
 	}
 
 	handleRejectCommand(stdinCommand: RooCliRejectCommand): void {
-		this.approvalAdapter.reject(stdinCommand.requestId)
+		this.approvalAdapter.reject(stdinCommand.requestId, stdinCommand.approvalId)
 	}
 
 	handleRespondCommand(stdinCommand: RooCliRespondCommand): void {
-		this.approvalAdapter.respond(stdinCommand.requestId, stdinCommand.text)
+		this.approvalAdapter.respond(stdinCommand.requestId, stdinCommand.text, stdinCommand.approvalId)
 	}
 
 	// =========================================================================

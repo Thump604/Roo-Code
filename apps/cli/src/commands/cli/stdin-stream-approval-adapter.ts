@@ -67,14 +67,16 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 
 	/**
 	 * Resolve with approval (explicit approve command).
+	 *
+	 * When approvalId is provided, the pending request must match.
+	 * When omitted, legacy single-pending behavior is used with a warning.
 	 */
-	approve(requestId: string): void {
-		if (!this.pending) {
-			this.emitNoApprovalPending(requestId, "approve")
+	approve(requestId: string, approvalId?: string): void {
+		if (!this.validatePending(requestId, "approve", approvalId)) {
 			return
 		}
 
-		const { resolve } = this.pending
+		const { resolve } = this.pending!
 		this.pending = null
 		this.emitApprovalDone(requestId, "approve", "approved")
 		resolve({ response: "yesButtonClicked" })
@@ -83,13 +85,12 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 	/**
 	 * Resolve with rejection (explicit reject command).
 	 */
-	reject(requestId: string): void {
-		if (!this.pending) {
-			this.emitNoApprovalPending(requestId, "reject")
+	reject(requestId: string, approvalId?: string): void {
+		if (!this.validatePending(requestId, "reject", approvalId)) {
 			return
 		}
 
-		const { resolve } = this.pending
+		const { resolve } = this.pending!
 		this.pending = null
 		this.emitApprovalDone(requestId, "reject", "rejected")
 		resolve({ response: "noButtonClicked" })
@@ -98,13 +99,12 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 	/**
 	 * Resolve with a text response (explicit respond command).
 	 */
-	respond(requestId: string, text: string): void {
-		if (!this.pending) {
-			this.emitNoApprovalPending(requestId, "respond")
+	respond(requestId: string, text: string, approvalId?: string): void {
+		if (!this.validatePending(requestId, "respond", approvalId)) {
 			return
 		}
 
-		const { resolve } = this.pending
+		const { resolve } = this.pending!
 		this.pending = null
 		this.emitApprovalDone(requestId, "respond", "responded")
 		resolve({ response: "messageResponse", text })
@@ -138,6 +138,37 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 		const { reject } = this.pending
 		this.pending = null
 		reject(new Error("stdin-stream approval adapter disposed"))
+	}
+
+	// =========================================================================
+	// Validation
+	// =========================================================================
+
+	/**
+	 * Validate that a pending approval exists and the approvalId matches (if provided).
+	 *
+	 * Returns true when the caller may proceed to resolve/reject the pending promise.
+	 *
+	 * Backward compatibility: when approvalId is omitted, the command resolves the
+	 * single pending approval but a "legacy_approval_no_id" warning is emitted so
+	 * orchestrators can migrate.
+	 */
+	private validatePending(requestId: string, command: RooCliCommandName, approvalId?: string): boolean {
+		if (!this.pending) {
+			this.emitNoApprovalPending(requestId, command)
+			return false
+		}
+
+		if (approvalId !== undefined && approvalId !== this.pending.approvalId) {
+			this.emitApprovalIdMismatch(requestId, command, approvalId, this.pending.approvalId)
+			return false
+		}
+
+		if (approvalId === undefined) {
+			this.emitLegacyApprovalWarning(requestId, command, this.pending.approvalId)
+		}
+
+		return true
 	}
 
 	// =========================================================================
@@ -181,6 +212,37 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 			content: "no approval request pending",
 			code: "no_pending_approval",
 			success: false,
+		})
+	}
+
+	private emitApprovalIdMismatch(
+		requestId: string,
+		command: RooCliCommandName,
+		provided: string,
+		expected: string,
+	): void {
+		this.emitter.emitRawEvent({
+			type: "control",
+			subtype: "error",
+			requestId,
+			command,
+			taskId: this.taskIdProvider(),
+			content: `approvalId mismatch: provided "${provided}", expected "${expected}"`,
+			code: "approval_id_mismatch",
+			success: false,
+		})
+	}
+
+	private emitLegacyApprovalWarning(requestId: string, command: RooCliCommandName, approvalId: string): void {
+		this.emitter.emitRawEvent({
+			type: "control",
+			subtype: "done",
+			requestId,
+			command,
+			taskId: this.taskIdProvider(),
+			content: `legacy approval without approvalId; expected "${approvalId}"`,
+			code: "legacy_approval_no_id",
+			success: true,
 		})
 	}
 }

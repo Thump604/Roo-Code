@@ -63,6 +63,11 @@ export function parseStdinStreamCommand(line: string, lineNumber: number): Stdin
 	const command = commandRaw as StdinStreamCommandName
 	const requestId = requestIdRaw.trim()
 
+	// Parse optional approvalId for approval-related commands
+	const approvalIdRaw = parsed.approvalId
+	const approvalId =
+		typeof approvalIdRaw === "string" && approvalIdRaw.trim().length > 0 ? approvalIdRaw.trim() : undefined
+
 	// respond command requires a text field
 	if (command === "respond") {
 		const textRaw = parsed.text
@@ -71,7 +76,12 @@ export function parseStdinStreamCommand(line: string, lineNumber: number): Stdin
 			throw new Error(`stdin command line ${lineNumber}: "respond" requires string "text"`)
 		}
 
-		return { command, requestId, text: textRaw } as RooCliRespondCommand
+		return {
+			command,
+			requestId,
+			text: textRaw,
+			...(approvalId !== undefined ? { approvalId } : {}),
+		} as RooCliRespondCommand
 	}
 
 	if (command === "start" || command === "message") {
@@ -133,6 +143,10 @@ export function parseStdinStreamCommand(line: string, lineNumber: number): Stdin
 			prompt: promptRaw,
 			...(images !== undefined ? { images } : {}),
 		}
+	}
+
+	if ((command === "approve" || command === "reject") && approvalId !== undefined) {
+		return { command, requestId, approvalId }
 	}
 
 	return { command, requestId }

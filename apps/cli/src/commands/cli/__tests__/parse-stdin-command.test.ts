@@ -87,6 +87,49 @@ describe("parseStdinStreamCommand", () => {
 			)
 			expect(result).toEqual({ command: "ping", requestId: "req-5" })
 		})
+
+		it("parses approve command with approvalId", () => {
+			const result = parseStdinStreamCommand(
+				JSON.stringify({ command: "approve", requestId: "req-6", approvalId: "approval-3" }),
+				1,
+			)
+			expect(result).toEqual({ command: "approve", requestId: "req-6", approvalId: "approval-3" })
+		})
+
+		it("parses reject command with approvalId", () => {
+			const result = parseStdinStreamCommand(
+				JSON.stringify({ command: "reject", requestId: "req-7", approvalId: "approval-4" }),
+				1,
+			)
+			expect(result).toEqual({ command: "reject", requestId: "req-7", approvalId: "approval-4" })
+		})
+
+		it("parses respond command with approvalId", () => {
+			const result = parseStdinStreamCommand(
+				JSON.stringify({ command: "respond", requestId: "req-8", text: "answer", approvalId: "approval-5" }),
+				1,
+			)
+			expect(result).toEqual({
+				command: "respond",
+				requestId: "req-8",
+				text: "answer",
+				approvalId: "approval-5",
+			})
+		})
+
+		it("parses approve command without approvalId (backward compat)", () => {
+			const result = parseStdinStreamCommand(JSON.stringify({ command: "approve", requestId: "req-9" }), 1)
+			expect(result).toEqual({ command: "approve", requestId: "req-9" })
+			expect((result as Record<string, unknown>).approvalId).toBeUndefined()
+		})
+
+		it("ignores empty-string approvalId", () => {
+			const result = parseStdinStreamCommand(
+				JSON.stringify({ command: "approve", requestId: "req-10", approvalId: "  " }),
+				1,
+			)
+			expect((result as Record<string, unknown>).approvalId).toBeUndefined()
+		})
 	})
 
 	describe("invalid input", () => {
