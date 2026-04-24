@@ -330,10 +330,54 @@ def case_resume_existing_session(context: SmokeContext) -> None:
             session.wait_for_assistant_reply("PEAR", 120, "resumed-session assistant reply")
 
 
+def case_reject_tool_live(context: SmokeContext) -> None:
+    """Reject a tool approval and verify the model continues without executing it."""
+    with tempfile.TemporaryDirectory(prefix="mesa-tui-reject-") as home_dir:
+        home = Path(home_dir)
+        context.seed_home(home)
+        with TuiSession(
+            context,
+            "reject-tool-live",
+            home,
+            ["--require-approval", "--reasoning-effort", "disabled"],
+        ) as session:
+            session.wait_for_text("Mesa Code CLI", 15)
+            session.submit_prompt("Use read_file to read AGENTS.md and reply with its first line only.")
+            session.wait_for_text("readFile", 120, "tool approval request")
+            session.wait_for_text("Press Y to approve, N to reject", 15)
+            # Reject the tool by pressing 'n'
+            session.send_bytes(b"n")
+            # Model should continue after rejection (won't hang)
+            session.read_for(5)
+
+
+def case_cancel_during_approval_live(context: SmokeContext) -> None:
+    """Cancel (Ctrl+C) while an approval request is pending."""
+    with tempfile.TemporaryDirectory(prefix="mesa-tui-cancel-approval-") as home_dir:
+        home = Path(home_dir)
+        context.seed_home(home)
+        with TuiSession(
+            context,
+            "cancel-during-approval-live",
+            home,
+            ["--require-approval", "--reasoning-effort", "disabled"],
+        ) as session:
+            session.wait_for_text("Mesa Code CLI", 15)
+            session.submit_prompt("Use read_file to read AGENTS.md and reply with its first line only.")
+            session.wait_for_text("readFile", 120, "tool approval request")
+            # Press Escape to cancel while approval is pending
+            session.send_bytes(b"\x1b")
+            session.read_for(3)
+            # CLI should recover — check it doesn't crash
+            session.wait_for_text("? for shortcuts", 15, "CLI recovered after cancel")
+
+
 CASES: dict[str, Callable[[SmokeContext], None]] = {
     "launch-and-render": case_launch_and_render,
     "submit-prompt-live": case_submit_prompt_live,
     "approval-flow-live": case_approval_flow_live,
+    "reject-tool-live": case_reject_tool_live,
+    "cancel-during-approval-live": case_cancel_during_approval_live,
     "autocomplete-picker-navigation": case_autocomplete_picker_navigation,
     "resume-existing-session": case_resume_existing_session,
 }

@@ -442,10 +442,62 @@ def case_streaming_baseline_live(context: SmokeContext) -> None:
     )
 
 
+def case_json_output_parseable(context: SmokeContext) -> None:
+    """Verify that --output-format json produces valid JSON."""
+    log_path = context.logs_root / "json-output-parseable.log"
+    try:
+        proc = subprocess.run(
+            context.build_cli_args(
+                "--print",
+                "--output-format",
+                "json",
+                "--reasoning-effort",
+                "disabled",
+                "Reply with the single word GRAPE and nothing else.",
+            ),
+            cwd=context.repo_root,
+            env=context.build_env(),
+            capture_output=True,
+            text=True,
+            timeout=min(context.timeout, 120.0),
+        )
+    except subprocess.TimeoutExpired as error:
+        stdout = decode_subprocess_output(error.stdout)
+        stderr = decode_subprocess_output(error.stderr)
+        log_path.write_text(stdout + "\n--- STDERR ---\n" + stderr, encoding="utf-8")
+        raise SmokeFailure(
+            f"json-output-parseable timed out\nlog: {log_path}\n--- stdout tail ---\n{stdout[-2500:]}"
+        ) from error
+
+    combined = proc.stdout + "\n--- STDERR ---\n" + proc.stderr
+    log_path.write_text(combined, encoding="utf-8")
+
+    if proc.returncode != 0:
+        raise SmokeFailure(
+            f"json-output-parseable exited {proc.returncode}\nlog: {log_path}\n--- stderr tail ---\n{proc.stderr[-1200:]}"
+        )
+
+    # Verify stdout is valid JSON
+    try:
+        parsed = json.loads(proc.stdout)
+    except json.JSONDecodeError as error:
+        raise SmokeFailure(
+            f"json-output-parseable stdout is not valid JSON: {error}\nlog: {log_path}\n--- stdout tail ---\n{proc.stdout[-2500:]}"
+        ) from error
+
+    # Verify the JSON contains the expected result text
+    result_text = json.dumps(parsed)
+    if "GRAPE" not in result_text:
+        raise SmokeFailure(
+            f'json-output-parseable JSON does not contain "GRAPE"\nlog: {log_path}\n--- parsed ---\n{result_text[:2500]}'
+        )
+
+
 CASES = {
     "streaming-baseline-live": case_streaming_baseline_live,
     "print-live": case_print_live,
     "stdin-stream-live": case_stdin_stream_live,
+    "json-output-parseable": case_json_output_parseable,
 }
 
 
@@ -462,7 +514,7 @@ def main() -> int:
     args = parse_args()
     cli_root = Path(__file__).resolve().parents[2]
     repo_root = cli_root.parents[1]
-    logs_root = Path(tempfile.mkdtemp(prefix="roo-noninteractive-smoke-logs-"))
+    logs_root = Path(tempfile.mkdtemp(prefix="mesa-noninteractive-smoke-logs-"))
     dist_cli = cli_root / "dist/index.js"
 
     if shutil.which("node") is None:
