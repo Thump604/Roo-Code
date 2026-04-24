@@ -229,7 +229,9 @@ export class NativeOllamaHandler extends BaseProvider implements SingleCompletio
 				chatOptions.num_ctx = this.options.ollamaNumCtx
 			}
 
-			// Create the actual API request promise
+			// NOTE: Ollama SDK's ChatRequest interface does not support AbortSignal.
+			// metadata.signal cannot be forwarded here — cancellation depends on
+			// the Task-level abort closing the async iterator consumer.
 			const stream = await client.chat({
 				model: modelId,
 				messages: ollamaMessages,
