@@ -287,6 +287,57 @@ describe("PoeHandler", () => {
 		})
 	})
 
+	describe("abort signal", () => {
+		it("passes abort signal to streamText when provided", async () => {
+			const handler = new PoeHandler({ poeApiKey: "key", apiModelId: "openai/gpt-4o" })
+
+			const fullStream = (async function* () {
+				yield { type: "text-delta", text: "Hello" }
+			})()
+
+			mockStreamText.mockReturnValue({
+				fullStream,
+				usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+			})
+
+			const controller = new AbortController()
+			const chunks = []
+			for await (const chunk of handler.createMessage("system", [{ role: "user" as const, content: "test" }], {
+				taskId: "test-task",
+				signal: controller.signal,
+			})) {
+				chunks.push(chunk)
+			}
+
+			expect(mockStreamText).toHaveBeenCalledWith(
+				expect.objectContaining({
+					abortSignal: controller.signal,
+				}),
+			)
+		})
+
+		it("does not pass abortSignal when no signal in metadata", async () => {
+			const handler = new PoeHandler({ poeApiKey: "key", apiModelId: "openai/gpt-4o" })
+
+			const fullStream = (async function* () {
+				yield { type: "text-delta", text: "Hello" }
+			})()
+
+			mockStreamText.mockReturnValue({
+				fullStream,
+				usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+			})
+
+			const chunks = []
+			for await (const chunk of handler.createMessage("system", [{ role: "user" as const, content: "test" }])) {
+				chunks.push(chunk)
+			}
+
+			const callArgs = mockStreamText.mock.calls[0][0]
+			expect(callArgs.abortSignal).toBeUndefined()
+		})
+	})
+
 	describe("completePrompt", () => {
 		it("returns generated text", async () => {
 			const handler = new PoeHandler({ poeApiKey: "key", apiModelId: "openai/gpt-4o" })

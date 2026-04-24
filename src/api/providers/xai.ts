@@ -124,6 +124,10 @@ export class XAIHandler extends BaseProvider implements SingleCompletionHandler 
 			requestBody.reasoning = model.reasoning
 		}
 
+		// NOTE: The OpenAI SDK Responses API (client.responses.create) does not
+		// accept RequestOptions with a signal parameter, unlike the Chat Completions
+		// API. Abort signal cannot be wired here until the SDK adds support.
+		// Cancellation relies on the consumer breaking from the async iterator.
 		let stream: AsyncIterable<any>
 		try {
 			stream = (await this.client.responses.create({

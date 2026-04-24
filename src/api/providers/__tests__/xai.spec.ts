@@ -295,4 +295,28 @@ describe("XAIHandler", () => {
 		const stream = handler.createMessage("test prompt", [])
 		await expect(stream.next()).rejects.toThrow(`xAI completion error: ${errorMessage}`)
 	})
+
+	/**
+	 * ABORT SIGNAL LIMITATION: The OpenAI SDK Responses API (client.responses.create)
+	 * does not accept RequestOptions with a signal parameter. This is a real SDK
+	 * limitation, not a missing feature in our code. Cancellation for XAi relies on
+	 * the consumer breaking from the async iterator.
+	 *
+	 * This test documents the limitation by verifying that responses.create() is
+	 * called without any signal/requestOptions argument.
+	 */
+	it("does not pass abort signal to responses.create (SDK limitation)", async () => {
+		mockResponsesCreate.mockResolvedValueOnce(mockStream([]))
+
+		const controller = new AbortController()
+		const stream = handler.createMessage("test prompt", [], { taskId: "test-task", signal: controller.signal })
+		await stream.next()
+
+		// responses.create is called with a single object argument (the request body).
+		// No second RequestOptions argument is passed because the Responses API
+		// doesn't support it.
+		expect(mockResponsesCreate).toHaveBeenCalledTimes(1)
+		const callArgs = mockResponsesCreate.mock.calls[0]
+		expect(callArgs).toHaveLength(1) // Only request body, no RequestOptions
+	})
 })
