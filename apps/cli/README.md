@@ -6,7 +6,8 @@ from Roo Code.
 The CLI is being refactored toward one shared session core used by interactive
 TUI, print mode, stdin-stream automation, and file/command-line workflows.
 Renderers may differ, but prompt handling, tool approval, cancellation, resume,
-and runtime invocation should not drift across modes.
+runtime invocation, hook enforcement, and task state should not drift across
+modes.
 
 The package still uses `@roo-code/cli` and the `roo` binary while the public
 rename is staged. The intended public command is `mesa`; `roo` will remain as a
@@ -18,8 +19,12 @@ compatibility alias during migration.
 - shared CLI/TUI session controller and approval contract
 - stable text, JSON, and stream-json output contracts
 - real cancellation, resume, and same-type approval behavior across modes
+- task history, pinning, forking, and recovery as shared session primitives
+- hook points for mandatory constraints around tools, shell, edits, and provider
+  calls
+- native parallel task and sub-agent plumbing without separate behavior paths
 - local/private code indexing and search
-- explicit tool and MCP scope control
+- explicit tool, skill, and MCP scope control
 - PTY smoke tests for terminal flows
 - local runtime `doctor`, readiness, and status checks
 
@@ -66,9 +71,9 @@ mesa run task.md --output-format stream-json
 mesa tui
 ```
 
-Future operator surfaces such as `serve`, `attach`, logs, stats, plugin/skill
-management, and remote/session relay should build on the same session/runtime
-contracts instead of creating a second behavior model.
+Future operator surfaces such as `serve`, `attach`, logs, stats, hooks,
+plugin/skill management, sub-agents, and remote/session relay should build on
+the same session/runtime contracts instead of creating a second behavior model.
 
 ## Smoke Tests
 

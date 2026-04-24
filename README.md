@@ -4,10 +4,10 @@ Mesa Code is an early public fork of Roo Code focused on a practical gap:
 making local and self-hosted AI coding workflows reliable from the terminal.
 
 Most coding agents can send a prompt to an endpoint. Mesa Code is being shaped
-to also understand the operating facts around that endpoint: which model was
+as a terminal-native agent harness: it should understand which model was
 requested, which model is actually serving, whether it is ready, which features
-are qualified, what tools are exposed, and whether approvals behave the same
-way in the TUI, CLI, and automation modes.
+are qualified, what tools are exposed, what constraints must be enforced, and
+whether approvals behave the same way in the TUI, CLI, and automation modes.
 
 ## Status
 
@@ -31,6 +31,10 @@ See [ROADMAP.md](ROADMAP.md) for the current public plan.
 - local/private code indexing and semantic search
 - first-class local runtime and session observability
 - stable text, JSON, and stream contracts for automation
+- task history, task pinning, task forking, and task recovery as first-class
+  workflow objects
+- hook points for mandatory constraints before and after tool/model actions
+- parallel task and sub-agent workflows without context-jump hacks
 - explicit user control over tools, approvals, model selection, MCP scope, and
   config
 - editor integration later, after the CLI core is solid
@@ -55,7 +59,7 @@ agent operations. Some are strongest as structured automation harnesses. Mesa
 Code is aimed at combining the useful parts around a narrower local/private
 goal.
 
-The goal is for the CLI to understand:
+The goal is for the CLI/TUI to understand:
 
 - what model was requested
 - what model is actually serving
@@ -65,6 +69,11 @@ The goal is for the CLI to understand:
 - which tool and MCP schemas are actually needed for the current mode
 - whether approval, cancellation, and resume behavior is consistent across TUI,
   CLI, print, and stream modes
+- which task is active, pinned, forked, recoverable, or safe to retry
+- which hooks and policies must intercept a tool call, shell command, file edit,
+  or provider request
+- which sub-agent or parallel task is allowed to run and how its result returns
+  to the parent session
 
 That makes local inference easier to trust and easier to automate.
 
@@ -77,13 +86,19 @@ The early roadmap is sequenced around user value:
    and readiness checks.
 2. Keep the CLI/TUI core unified: one session model, one approval contract, one
    automation stream, renderer-specific UI only where needed.
-3. Add local/private code indexing: provider-agnostic embeddings, local storage,
+3. Build the agent harness: task history, task pinning, task forking, recent
+   task dashboards, context snapshots, and expandable TUI task views.
+4. Add hooks and policy interception: mandatory pre/post constraints for tools,
+   edits, shell commands, provider calls, loops, and automation.
+5. Add parallel task and sub-agent workflows: native multi-task panes, scoped
+   child sessions, inline delegation, and structured result handoff.
+6. Add local/private code indexing: provider-agnostic embeddings, local storage,
    fast search, and no cloud dependency for private code.
-4. Control tool and MCP overhead: explicit tool profiles, per-mode MCP scope,
+7. Control tool and MCP overhead: explicit tool profiles, per-mode MCP scope,
    artifact handling for large outputs, and no accidental prompt bloat.
-5. Expose useful diagnostics: `doctor`, `status --json`, structured logs,
+8. Expose useful diagnostics: `doctor`, `status --json`, structured logs,
    session traces, and runtime metrics without leaking secrets by default.
-6. Add operator surfaces later: `serve`, `attach`, plugin/skill management, and
+9. Add operator surfaces later: `serve`, `attach`, plugin/skill management, and
    remote/session relay only after the local core is stable.
 
 ## Development
@@ -136,6 +151,9 @@ collaboration is welcome around:
 - CLI/TUI session architecture
 - local runtime adapters
 - local model discovery and setup
+- task UX, task history, and session recovery
+- hooks, constraints, and approval policy
+- parallel task and sub-agent orchestration
 - local/private code indexing
 - tool and MCP scope control
 - terminal UX

@@ -2,7 +2,8 @@
 
 Mesa Code is a local/private-first coding agent CLI and TUI forked from Roo
 Code. The roadmap is sequenced by practical user value: make local models work
-reliably, keep the terminal workflow clean, then add larger operator surfaces.
+reliably, build a trustworthy agent harness, keep the terminal workflow clean,
+then add larger operator surfaces.
 
 Detailed implementation notes, environment-specific runtime contracts, and
 launch-planning notes do not belong in this public roadmap.
@@ -46,7 +47,62 @@ over the same session engine, not separate products with divergent behavior.
 The default tool surface should stay small and legible. Richer operator
 features should be layered on deliberately, not forced into every prompt.
 
-## 3. Local Code Indexing And Search
+## 3. Agent Harness UX And Task Control
+
+Mesa should make human-machine collaboration explicit and controllable. The TUI
+should not just be a chat window; it should be a task control surface for
+autonomous and semi-autonomous coding work.
+
+- recent-task dashboard across terminal sessions
+- task pinning for important long-running work
+- task forking for alternate implementation paths
+- task resume, retry, and recover actions with clear state
+- expandable task windows for parallel work and long tool traces
+- context snapshots that explain what the agent is using and why
+- structured task summaries, diffs, artifacts, and next actions
+- error presentation that separates actionable failures from scary internal
+  noise
+- bounded auto-retry for minor provider/tool failures with visible provenance
+
+The product should reduce beginner intimidation without hiding real failures.
+Errors that matter must stay visible; transient noise should be summarized and
+made recoverable.
+
+## 4. Hooks, Constraints, And Automation Loops
+
+Automation needs physical interception points. Hooks are the difference between
+"the model probably follows instructions" and "the harness enforces policy."
+
+- pre-tool, post-tool, pre-edit, post-edit, pre-shell, and post-shell hooks
+- provider request/response hooks for model-specific cleanup and validation
+- policy hooks for mandatory constraints, budgets, and workspace rules
+- loop hooks for iterative fix/test cycles
+- approval hooks for risky shell commands, file writes, external fetches, and
+  MCP calls
+- local hook packs that can be versioned with a repo
+- JSON/stream events for hook decisions and denials
+- fail-closed behavior when mandatory hooks are missing or broken
+
+Hooks should be first-class CLI/TUI behavior, not hidden extension callbacks.
+
+## 5. Parallel Tasks And Sub-Agents
+
+Mesa should support parallel software work without forcing users to manually
+copy context between chat windows.
+
+- native multi-task panes in the TUI
+- scoped sub-agents with explicit input, tools, cwd, and budget
+- inline delegation from a parent task to a child task
+- structured result handoff back to the parent session
+- isolated approvals and artifacts per child task
+- conflict detection when child tasks touch overlapping files
+- task-level cancellation and cleanup
+- session traces that show which agent did what
+
+Parallelism must remain controllable. The harness should make child work
+visible, bounded, and reviewable instead of spawning opaque background agents.
+
+## 6. Local Code Indexing And Search
 
 Code indexing is a high-value local workflow and should be private by default.
 
@@ -61,7 +117,7 @@ Code indexing is a high-value local workflow and should be private by default.
 Indexing should help the model retrieve relevant project context without
 dumping large, unrelated environment details into every prompt.
 
-## 4. Tool, MCP, And Prompt Budget Control
+## 7. Tool, MCP, Skills, And Prompt Budget Control
 
 Mesa should treat tool exposure as a security and context-budget problem, not a
 checkbox.
@@ -69,6 +125,9 @@ checkbox.
 - explicit tool profiles, including read-only and pure/local-debug profiles
 - per-mode allowed/blocked tool lists
 - per-mode allowed/blocked MCP server lists
+- skills and reusable workflows with explicit activation rules
+- tool discovery that exposes only what the current task needs
+- frictionless common tools without dumping every schema into every prompt
 - prompt/tool schema budget reporting
 - oversized tool and MCP outputs stored as local artifacts with previews, caps,
   and stable references
@@ -80,11 +139,14 @@ checkbox.
 The CLI should not dump every configured tool schema into context just because a
 server exists.
 
-## 5. Model-Class Capability Profiles
+## 8. Provider Ecosystem And Model-Class Capability Profiles
 
 Provider and model behavior should be normalized through explicit capability
 profiles instead of scattered one-off hacks.
 
+- community-maintainable provider adapters
+- clear adapter contracts for OpenAI-compatible and Anthropic-compatible
+  servers
 - reasoning extraction and rendering
 - reasoning tag stripping where needed
 - tool-call compatibility profiles
@@ -97,7 +159,7 @@ This is the foundation for supporting local Qwen, GLM/Z.ai, Ollama,
 OpenAI-compatible servers, Anthropic-compatible servers, and future models
 without turning every provider into a special case.
 
-## 6. Observability And Diagnostics
+## 9. Observability And Diagnostics
 
 Users should be able to understand what happened without digging through
 private logs or guessing from a frozen UI.
@@ -115,7 +177,7 @@ private logs or guessing from a frozen UI.
 Telemetry, when added, should be local/private by default and should not replace
 the metrics emitted by the runtime engines themselves.
 
-## 7. Session Portability And Recovery
+## 10. Session Portability And Recovery
 
 Long coding tasks need reliable continuity.
 
@@ -128,7 +190,7 @@ Long coding tasks need reliable continuity.
 - clean behavior after failed edits, provider errors, cancellation, or terminal
   restarts
 
-## 8. Operator Surfaces
+## 11. Operator Surfaces
 
 Operator surfaces come after the local CLI/TUI core is solid.
 
@@ -144,7 +206,7 @@ Operator surfaces come after the local CLI/TUI core is solid.
 These should remain bounded and testable. Mesa should not become a giant
 always-on automation daemon before it is an excellent local coding CLI.
 
-## 9. Mesa Code Rename And Migration
+## 12. Mesa Code Rename And Migration
 
 Move from the Roo Code fork identity to Mesa Code without breaking early users.
 
