@@ -225,6 +225,26 @@ describe("generateMcpArtifactId — collision prevention", () => {
 		const id = generateMcpArtifactId("1706119234567")
 		expect(validPattern.test(id)).toBe(true)
 	})
+
+	it("sanitizes path traversal in executionId", () => {
+		const validPattern = /^(cmd|mcp)-[\w-]+\.txt$/
+		const id = generateMcpArtifactId("../../etc/passwd")
+		expect(validPattern.test(id)).toBe(true)
+		expect(id).not.toContain("..")
+		expect(id).not.toContain("/")
+	})
+
+	it("handles empty executionId after sanitization", () => {
+		const validPattern = /^(cmd|mcp)-[\w-]+\.txt$/
+		const id = generateMcpArtifactId("///...")
+		expect(validPattern.test(id)).toBe(true)
+		expect(id).toContain("unknown")
+	})
+
+	it("preserves normal executionId characters", () => {
+		const id = generateMcpArtifactId("1706119234567")
+		expect(id).toContain("1706119234567")
+	})
 })
 
 // =============================================================================
@@ -277,5 +297,36 @@ describe("readArtifact — offset and limit reads", () => {
 		const result = await readArtifact(tmpDir, "task-rlim", artifactId, 0, 256)
 		expect(result.content.length).toBe(256)
 		expect(result.content).toBe("Y".repeat(256))
+	})
+
+	it("returns empty content when offset >= totalSize (no RangeError)", async () => {
+		const text = "Z".repeat(threshold + 100)
+		const artifactId = "mcp-read-past-eof.txt"
+		await maybeTruncateToolOutput(text, artifactId, "task-rpeof", tmpDir)
+
+		const result = await readArtifact(tmpDir, "task-rpeof", artifactId, threshold + 5000)
+		expect(result.content).toBe("")
+		expect(result.totalSize).toBe(threshold + 100)
+	})
+
+	it("returns empty content when offset equals totalSize exactly", async () => {
+		const text = "W".repeat(threshold + 50)
+		const artifactId = "mcp-read-exact-eof.txt"
+		await maybeTruncateToolOutput(text, artifactId, "task-reeof", tmpDir)
+
+		const result = await readArtifact(tmpDir, "task-reeof", artifactId, threshold + 50)
+		expect(result.content).toBe("")
+		expect(result.totalSize).toBe(threshold + 50)
+	})
+
+	it("handles multibyte content at offset boundary", async () => {
+		// CJK characters are 3 bytes each in UTF-8
+		const text = "あ".repeat(Math.ceil((threshold + 100) / 3))
+		const artifactId = "mcp-read-multibyte.txt"
+		await maybeTruncateToolOutput(text, artifactId, "task-rmb", tmpDir)
+
+		const result = await readArtifact(tmpDir, "task-rmb", artifactId, 6, 9)
+		// 6 bytes = 2 CJK chars offset, 9 bytes = 3 CJK chars
+		expect(result.content).toBe("あああ")
 	})
 })

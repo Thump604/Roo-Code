@@ -31,9 +31,16 @@ let artifactCounter = 0
  *
  * Combines the execution timestamp with a monotonic counter so two MCP
  * tool calls in the same millisecond get distinct file names.
+ *
+ * The executionId is sanitized to prevent path traversal — only word
+ * characters and hyphens are allowed. Any other character is stripped.
  */
 export function generateMcpArtifactId(executionId: string): string {
-	return `mcp-${executionId}-${artifactCounter++}.txt`
+	const sanitized = executionId.replace(/[^\w-]/g, "")
+	if (!sanitized) {
+		return `mcp-unknown-${artifactCounter++}.txt`
+	}
+	return `mcp-${sanitized}-${artifactCounter++}.txt`
 }
 
 /**
@@ -109,6 +116,10 @@ export async function readArtifact(
 	const artifactPath = path.join(taskDir, "command-output", artifactId)
 	const stat = await fs.stat(artifactPath)
 	const totalSize = stat.size
+
+	if (offset >= totalSize) {
+		return { content: "", totalSize }
+	}
 
 	const fd = await fs.open(artifactPath, "r")
 	try {
