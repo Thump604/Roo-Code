@@ -3,7 +3,7 @@ import { spawn } from "child_process"
 import { VERSION } from "@/lib/utils/version.js"
 import { isRecord } from "@/lib/utils/guards.js"
 
-const INSTALL_REPO = process.env.MESA_REPO || process.env.ROO_REPO || "Thump604/Roo-Code"
+const INSTALL_REPO = process.env.MESA_REPO || process.env.ROO_REPO || "Thump604/mesa-code"
 const INSTALL_BRANCH = process.env.MESA_INSTALL_BRANCH || process.env.ROO_INSTALL_BRANCH || "main"
 const RELEASES_URL = `https://api.github.com/repos/${INSTALL_REPO}/releases?per_page=100`
 export const INSTALL_SCRIPT_COMMAND = `curl -fsSL https://raw.githubusercontent.com/${INSTALL_REPO}/${INSTALL_BRANCH}/apps/cli/install.sh | sh`
