@@ -271,3 +271,117 @@ describe("StdinStreamSession — detectAskTransition", () => {
 		expect(approvals[1]!.content).toContain("read_file")
 	})
 })
+
+// =============================================================================
+// Integration: approval protocol correctness
+// =============================================================================
+
+describe("StdinStreamSession — approval protocol integration", () => {
+	it("emitted approval_request includes approvalId field from adapter", () => {
+		const { emitter, events } = makeMockEmitter()
+		const toolMsg = makeAskMessage("tool", '{"tool":"read_file"}', 7001)
+		const { controller } = makeMockSessionController(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 7001, lastMessage: toolMsg }),
+		)
+		const session = createSession(controller, emitter)
+
+		sendStateMessage(session)
+
+		// The mock emitter captures the raw event — in production,
+		// JsonEventEmitter.emitEvent() injects requestId from the provider.
+		// Here we verify the adapter sets approvalId on the raw event.
+		const approvalEvents = events.filter((e) => e.subtype === "approval_request")
+		expect(approvalEvents).toHaveLength(1)
+		expect(approvalEvents[0]!.approvalId).toBeDefined()
+		expect(typeof approvalEvents[0]!.approvalId).toBe("string")
+		expect((approvalEvents[0]!.approvalId as string).length).toBeGreaterThan(0)
+
+		session.approvalAdapter.dispose()
+	})
+
+	it("malformed approvalId does not resolve pending approval", () => {
+		const { emitter, events } = makeMockEmitter()
+		const toolMsg = makeAskMessage("tool", '{"tool":"read_file"}', 7002)
+		const { controller } = makeMockSessionController(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 7002, lastMessage: toolMsg }),
+		)
+		const session = createSession(controller, emitter)
+
+		sendStateMessage(session)
+		expect(session.approvalAdapter.hasPending).toBe(true)
+
+		// Approve with wrong approvalId — must NOT resolve
+		session.handleApproveCommand({ command: "approve", requestId: "req-bad", approvalId: "approval-wrong" })
+		expect(session.approvalAdapter.hasPending).toBe(true)
+
+		// Should emit approval_id_mismatch error
+		const mismatchEvents = events.filter((e) => e.code === "approval_id_mismatch")
+		expect(mismatchEvents).toHaveLength(1)
+		expect(mismatchEvents[0]!.subtype).toBe("error")
+		expect(mismatchEvents[0]!.success).toBe(false)
+
+		session.approvalAdapter.dispose()
+	})
+
+	it("legacy no-approvalId emits ack (non-terminal) then approve emits done (terminal)", async () => {
+		const { emitter, events } = makeMockEmitter()
+		const toolMsg = makeAskMessage("tool", '{"tool":"read_file"}', 7003)
+		const { controller } = makeMockSessionController(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 7003, lastMessage: toolMsg }),
+		)
+		const session = createSession(controller, emitter)
+
+		sendStateMessage(session)
+
+		// Approve WITHOUT approvalId — legacy path
+		session.handleApproveCommand({ command: "approve", requestId: "req-legacy" })
+
+		// Should emit: approval_request + legacy_approval_no_id (ack) + done (approved)
+		const legacyWarnings = events.filter((e) => e.code === "legacy_approval_no_id")
+		const doneEvents = events.filter((e) => e.subtype === "done" && e.code === "approved")
+
+		expect(legacyWarnings).toHaveLength(1)
+		expect(legacyWarnings[0]!.subtype).toBe("ack")
+		expect(legacyWarnings[0]!.done).toBe(false)
+
+		expect(doneEvents).toHaveLength(1)
+		expect(doneEvents[0]!.success).toBe(true)
+	})
+
+	it("consecutive same-type approvals emit distinct approvalIds and preserve payload", () => {
+		const { emitter, events } = makeMockEmitter()
+		const { controller, setAgentState } = makeMockSessionController(makeAgentState())
+		const session = createSession(controller, emitter)
+
+		// First tool ask
+		const tool1 = makeAskMessage("tool", '{"tool":"read_file","path":"/a.ts"}', 8001)
+		setAgentState(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 8001, lastMessage: tool1 }),
+		)
+		sendStateMessage(session)
+
+		const firstApprovalId = session.approvalAdapter.currentApprovalId
+		session.approvalAdapter.approve("req-1", firstApprovalId!)
+
+		// Second tool ask
+		const tool2 = makeAskMessage("tool", '{"tool":"write_to_file","path":"/b.ts","content":"hello"}', 8002)
+		setAgentState(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 8002, lastMessage: tool2 }),
+		)
+		sendStateMessage(session)
+
+		const secondApprovalId = session.approvalAdapter.currentApprovalId
+		session.approvalAdapter.approve("req-2", secondApprovalId!)
+
+		// Distinct approvalIds
+		expect(firstApprovalId).not.toBe(secondApprovalId)
+
+		// Both approval_request events carry their payload
+		const approvals = events.filter((e) => e.subtype === "approval_request")
+		expect(approvals).toHaveLength(2)
+		expect(approvals[0]!.payload).toBe('{"tool":"read_file","path":"/a.ts"}')
+		expect(approvals[1]!.payload).toBe('{"tool":"write_to_file","path":"/b.ts","content":"hello"}')
+		expect(approvals[0]!.approvalId).toBe(firstApprovalId)
+		expect(approvals[1]!.approvalId).toBe(secondApprovalId)
+	})
+})
