@@ -1,17 +1,13 @@
-import * as fs from "fs/promises"
-import * as path from "path"
-
 import type { ClineAskUseMcpServer, McpExecutionStatus } from "@roo-code/types"
-import { TERMINAL_PREVIEW_BYTES, DEFAULT_TERMINAL_OUTPUT_PREVIEW_SIZE } from "@roo-code/types"
 
 import { Task } from "../task/Task"
 import { formatResponse } from "../prompts/responses"
 import { t } from "../../i18n"
 import type { ToolUse } from "../../shared/tools"
 import { toolNamesMatch } from "../../utils/mcp-name"
-import { getTaskDirectoryPath } from "../../utils/storage"
 
 import { BaseTool, ToolCallbacks } from "./BaseTool"
+import { maybeTruncateToolOutput } from "./tool-output-artifacts"
 
 interface UseMcpToolParams {
 	server_name: string
@@ -361,53 +357,16 @@ export class UseMcpToolTool extends BaseTool<"use_mcp_tool"> {
 	/**
 	 * If the MCP result exceeds the preview threshold, persist the full
 	 * output to disk and return a bounded preview with an artifact marker.
-	 * Reuses the command-output directory and is readable via read_command_output.
+	 * Delegates to the shared tool-output-artifacts helper.
 	 */
 	private async maybeTruncateResult(
 		task: Task,
 		text: string,
 		executionId: string,
 	): Promise<{ preview: string; truncated: boolean }> {
-		const threshold = TERMINAL_PREVIEW_BYTES[DEFAULT_TERMINAL_OUTPUT_PREVIEW_SIZE]
-		const textBytes = Buffer.byteLength(text, "utf-8")
-
-		if (textBytes <= threshold) {
-			return { preview: text, truncated: false }
-		}
-
-		// Persist full output to disk — only truncate if persistence succeeds.
-		// If there's no storage path or the write fails, return the full text
-		// rather than advertising an artifact that doesn't exist.
 		const artifactId = `mcp-${executionId}.txt`
 		const globalStoragePath = task.providerRef.deref()?.context?.globalStorageUri?.fsPath
-
-		if (!globalStoragePath) {
-			return { preview: text, truncated: false }
-		}
-
-		try {
-			const taskDir = await getTaskDirectoryPath(globalStoragePath, task.taskId)
-			const storageDir = path.join(taskDir, "command-output")
-			await fs.mkdir(storageDir, { recursive: true })
-			await fs.writeFile(path.join(storageDir, artifactId), text, "utf-8")
-		} catch {
-			return { preview: text, truncated: false }
-		}
-
-		// Build byte-safe preview: encode to UTF-8 bytes, slice to threshold,
-		// then decode back. This respects the byte budget regardless of
-		// character width (CJK, emoji, etc.).
-		const fullBuffer = Buffer.from(text, "utf-8")
-		const previewBuffer = fullBuffer.subarray(0, threshold)
-		// Decode may produce a replacement character at the end if we sliced
-		// mid-codepoint. Trim the last char if it's U+FFFD (replacement).
-		let previewText = previewBuffer.toString("utf-8")
-		if (previewText.endsWith("\uFFFD")) {
-			previewText = previewText.slice(0, -1)
-		}
-
-		const marker = `\n\n[Truncated: ${textBytes} bytes total. Use read_command_output with artifact_id="${artifactId}" to read the full output.]`
-		return { preview: previewText + marker, truncated: true }
+		return maybeTruncateToolOutput(text, artifactId, task.taskId, globalStoragePath)
 	}
 }
 
