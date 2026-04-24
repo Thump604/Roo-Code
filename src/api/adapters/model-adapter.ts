@@ -95,15 +95,16 @@ export interface ModelAdapter {
 /**
  * Create a ModelAdapter for the given provider and model info.
  *
- * For now, only "openai-compatible" is implemented (covers vllm-mlx
- * and other local OpenAI-API endpoints). Other model classes return
- * the default passthrough adapter.
+ * OpenAI-compatible providers (including OpenRouter) use the adapter
+ * that strips `<think>` tags and extracts reasoning from dedicated
+ * fields. Other model classes return the default passthrough adapter.
  */
 export function createModelAdapter(provider: string, _modelInfo?: ModelInfo): ModelAdapter {
 	switch (provider) {
 		case "openai":
 		case "openai-native":
 		case "openai-compatible":
+		case "openrouter":
 		case "vllm-mlx":
 			return new OpenAICompatibleAdapter()
 		default:

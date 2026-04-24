@@ -525,6 +525,120 @@ describe("OpenRouterHandler", () => {
 			expect(endChunks).toHaveLength(1)
 			expect(endChunks[0].id).toBe("call_openrouter_test")
 		})
+
+		it("strips <think> tags from content via ModelAdapter reasoning processor", async () => {
+			const handler = new OpenRouterHandler(mockOptions)
+
+			const mockStream = {
+				async *[Symbol.asyncIterator]() {
+					yield {
+						id: "test-id",
+						choices: [{ delta: { content: "<think>internal reasoning</think>visible answer" } }],
+					}
+					yield {
+						id: "test-id",
+						choices: [{ delta: {} }],
+						usage: { prompt_tokens: 5, completion_tokens: 10 },
+					}
+				},
+			}
+
+			const mockCreate = vitest.fn().mockResolvedValue(mockStream)
+			;(OpenAI as any).prototype.chat = {
+				completions: { create: mockCreate },
+			} as any
+
+			const chunks = []
+			for await (const chunk of handler.createMessage("system", [{ role: "user" as const, content: "test" }])) {
+				chunks.push(chunk)
+			}
+
+			const textChunks = chunks.filter((c) => c.type === "text")
+			const reasoningChunks = chunks.filter((c) => c.type === "reasoning")
+			const allText = textChunks.map((c) => (c as any).text).join("")
+			const allReasoning = reasoningChunks.map((c) => (c as any).text).join("")
+
+			expect(allText).toBe("visible answer")
+			expect(allText).not.toContain("<think>")
+			expect(allReasoning).toBe("internal reasoning")
+		})
+
+		it("extracts top-level reasoning field via adapter when no reasoning_details", async () => {
+			const handler = new OpenRouterHandler(mockOptions)
+
+			const mockStream = {
+				async *[Symbol.asyncIterator]() {
+					yield {
+						id: "test-id",
+						choices: [{ delta: { reasoning: "Step 1: analyze", content: "The answer is 42" } }],
+					}
+					yield {
+						id: "test-id",
+						choices: [{ delta: {} }],
+						usage: { prompt_tokens: 5, completion_tokens: 10 },
+					}
+				},
+			}
+
+			const mockCreate = vitest.fn().mockResolvedValue(mockStream)
+			;(OpenAI as any).prototype.chat = {
+				completions: { create: mockCreate },
+			} as any
+
+			const chunks = []
+			for await (const chunk of handler.createMessage("system", [{ role: "user" as const, content: "test" }])) {
+				chunks.push(chunk)
+			}
+
+			const reasoningChunks = chunks.filter((c) => c.type === "reasoning")
+			const textChunks = chunks.filter((c) => c.type === "text")
+
+			expect(reasoningChunks.length).toBeGreaterThanOrEqual(1)
+			expect(textChunks.map((c) => (c as any).text).join("")).toBe("The answer is 42")
+		})
+
+		it("does not duplicate reasoning when reasoning_details also provides it", async () => {
+			const handler = new OpenRouterHandler(mockOptions)
+
+			const mockStream = {
+				async *[Symbol.asyncIterator]() {
+					yield {
+						id: "test-id",
+						choices: [
+							{
+								delta: {
+									reasoning_details: [
+										{ type: "reasoning.text", text: "structured thought", index: 0 },
+									],
+									reasoning: "structured thought",
+									content: "answer",
+								},
+							},
+						],
+					}
+					yield {
+						id: "test-id",
+						choices: [{ delta: {} }],
+						usage: { prompt_tokens: 5, completion_tokens: 10 },
+					}
+				},
+			}
+
+			const mockCreate = vitest.fn().mockResolvedValue(mockStream)
+			;(OpenAI as any).prototype.chat = {
+				completions: { create: mockCreate },
+			} as any
+
+			const chunks = []
+			for await (const chunk of handler.createMessage("system", [{ role: "user" as const, content: "test" }])) {
+				chunks.push(chunk)
+			}
+
+			// Reasoning should appear exactly once (from reasoning_details), not duplicated
+			const reasoningChunks = chunks.filter((c) => c.type === "reasoning")
+			expect(reasoningChunks).toHaveLength(1)
+			expect((reasoningChunks[0] as any).text).toBe("structured thought")
+		})
 	})
 
 	describe("completePrompt", () => {

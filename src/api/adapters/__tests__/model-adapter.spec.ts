@@ -15,7 +15,7 @@ import { createModelAdapter, type ImageBlock, type ModelAdapter } from "../model
 // =============================================================================
 
 describe("createModelAdapter", () => {
-	it.each(["openai", "openai-native", "openai-compatible", "vllm-mlx"])(
+	it.each(["openai", "openai-native", "openai-compatible", "openrouter", "vllm-mlx"])(
 		"returns openai-compatible for %s",
 		(provider) => {
 			const adapter = createModelAdapter(provider)

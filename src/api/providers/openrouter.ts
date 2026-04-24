@@ -33,6 +33,9 @@ import { getModelParams } from "../transform/model-params"
 import { getModels } from "./fetchers/modelCache"
 import { getModelEndpoints } from "./fetchers/modelEndpointCache"
 
+import { createModelAdapter } from "../adapters/model-adapter"
+import { createReasoningProcessor } from "../adapters/reasoning-stream"
+
 import { DEFAULT_HEADERS } from "./constants"
 import { BaseProvider } from "./base-provider"
 import type { ApiHandlerCreateMessageMetadata, SingleCompletionHandler } from "../index"
@@ -145,6 +148,7 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 	protected endpoints: ModelRecord = {}
 	private readonly providerName = "OpenRouter"
 	private currentReasoningDetails: any[] = []
+	private readonly adapter = createModelAdapter("openrouter")
 
 	constructor(options: ApiHandlerOptions) {
 		super()
@@ -380,6 +384,10 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			}
 		}
 
+		// Reasoning processor handles <think> tag stripping and dedicated
+		// reasoning field extraction via the shared ModelAdapter boundary.
+		const reasoningProcessor = createReasoningProcessor(this.adapter)
+
 		let lastUsage: CompletionUsage | undefined = undefined
 		// Accumulator for reasoning_details FROM the API.
 		// We preserve the original shape of reasoning_details to prevent malformed responses.
@@ -480,12 +488,10 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 					}
 				}
 
-				// Handle top-level reasoning field for UI display.
+				// Handle top-level reasoning field via adapter.
 				// Skip if we've already yielded from reasoning_details to avoid duplicate display.
-				if ("reasoning" in delta && delta.reasoning && typeof delta.reasoning === "string") {
-					if (!hasYieldedReasoningFromDetails) {
-						yield { type: "reasoning", text: delta.reasoning }
-					}
+				if (!hasYieldedReasoningFromDetails) {
+					yield* reasoningProcessor.processReasoning(delta as Record<string, unknown>)
 				}
 
 				// Emit raw tool call chunks - NativeToolCallParser handles state management
@@ -501,8 +507,12 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 					}
 				}
 
+				// Process text content via the reasoning processor.
+				// This strips <think> tags for open models (e.g., DeepSeek R1,
+				// Qwen) that embed reasoning in content rather than using
+				// structured reasoning_details.
 				if (delta.content) {
-					yield { type: "text", text: delta.content }
+					yield* reasoningProcessor.processContent(delta.content)
 				}
 			}
 
@@ -519,6 +529,9 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 				lastUsage = chunk.usage
 			}
 		}
+
+		// Flush any remaining buffered tag content from the reasoning processor.
+		yield* reasoningProcessor.final()
 
 		// After streaming completes, consolidate and store reasoning_details from the API.
 		// This filters out corrupted encrypted blocks (missing `data`) and consolidates by index.
