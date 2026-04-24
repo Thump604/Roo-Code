@@ -198,12 +198,14 @@ export interface StdinStreamModeOptions {
 	sessionController: CliSessionController
 	jsonEmitter: JsonEventEmitter
 	setStreamRequestId: (id: string | undefined) => void
+	hookManager?: import("@/core/hooks/index.js").HookManager
 }
 
 export async function runStdinStreamMode({
 	sessionController,
 	jsonEmitter,
 	setStreamRequestId,
+	hookManager,
 }: StdinStreamModeOptions) {
 	let hasReceivedStdinCommand = false
 	let shouldShutdown = false
@@ -212,6 +214,7 @@ export async function runStdinStreamMode({
 		jsonEmitter,
 		setStreamRequestId,
 		isShuttingDown: () => shouldShutdown,
+		hookManager,
 	})
 
 	const offClientError = sessionController.onError((error) => {

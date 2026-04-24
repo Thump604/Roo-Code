@@ -12,9 +12,6 @@ export interface NonInteractiveSessionLifecycleOptions {
 	stdinPromptStream?: boolean
 	bootstrapResumeForStdinStream?: (runtime: CliRuntime, sessionId: string) => Promise<void>
 	taskIndex?: TaskIndex
-	workspacePath?: string
-	model?: string
-	provider?: string
 }
 
 export function createNonInteractiveSessionLifecycle({
@@ -25,12 +22,8 @@ export function createNonInteractiveSessionLifecycle({
 	stdinPromptStream,
 	bootstrapResumeForStdinStream,
 	taskIndex,
-	workspacePath,
-	model,
-	provider,
 }: NonInteractiveSessionLifecycleOptions): CliSessionLifecycle {
 	let textSurface: TextSessionSurface | null = null
-	let activeTaskId: string | undefined
 
 	return {
 		afterActivate: (runtime, controller) => {
@@ -45,33 +38,17 @@ export function createNonInteractiveSessionLifecycle({
 			if (jsonEmitter) {
 				controller.attachJsonEmitter(jsonEmitter)
 			}
+
+			// Subscribe to task completion as an event listener (additive, not replacement).
+			// Task start is recorded by the runner after launch — not here — because
+			// onStart in the lifecycle contract replaces the default launch path.
+			if (taskIndex) {
+				runtime.onTaskCompleted((event) => {
+					// Fire-and-forget: index update must not block task completion
+					void taskIndex.updateStatus(event.success ? "completed" : "failed").catch(() => {})
+				})
+			}
 		},
-		onStart: taskIndex
-			? async (launch) => {
-					activeTaskId = launch.taskId || `task-${Date.now()}`
-					await taskIndex.upsert({
-						taskId: activeTaskId,
-						cwd: workspacePath || process.cwd(),
-						promptSummary: launch.prompt ? `Task: ${launch.prompt.slice(0, 100)}` : "(no summary)",
-						taskStatus: "running",
-						model,
-						provider,
-					})
-				}
-			: undefined,
-		onTaskCompleted: taskIndex
-			? async (event) => {
-					const taskId = activeTaskId || `task-${Date.now()}`
-					await taskIndex.upsert({
-						taskId,
-						cwd: workspacePath || process.cwd(),
-						promptSummary: "",
-						taskStatus: event.success ? "completed" : "failed",
-						model,
-						provider,
-					})
-				}
-			: undefined,
 		onResume:
 			stdinPromptStream && bootstrapResumeForStdinStream
 				? async (launch, controller) => {

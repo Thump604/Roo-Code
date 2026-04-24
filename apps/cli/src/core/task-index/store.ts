@@ -34,6 +34,8 @@ function validateSummary(summary: string | undefined): string {
 export class TaskIndex {
 	private indexDir: string
 	private indexPath: string
+	/** The most recently upserted taskId — used by updateStatus. */
+	private activeTaskId: string | undefined
 
 	constructor(indexDir: string) {
 		this.indexDir = indexDir
@@ -76,11 +78,16 @@ export class TaskIndex {
 		const index = await this.read()
 		const now = new Date().toISOString()
 
+		this.activeTaskId = entry.taskId
+
 		const existing = index.entries.find((e) => e.taskId === entry.taskId)
 		if (existing) {
 			existing.updatedAt = now
 			existing.taskStatus = entry.taskStatus
-			existing.promptSummary = validateSummary(entry.promptSummary)
+			// Only update summary if caller provides a non-empty one
+			if (entry.promptSummary && entry.promptSummary.trim().length > 0) {
+				existing.promptSummary = validateSummary(entry.promptSummary)
+			}
 			if (entry.model !== undefined) existing.model = entry.model
 			if (entry.provider !== undefined) existing.provider = entry.provider
 			await this.write(index)
@@ -110,6 +117,22 @@ export class TaskIndex {
 
 		await this.write(index)
 		return newEntry
+	}
+
+	/**
+	 * Update the status of the most recently upserted task.
+	 * Preserves the existing summary — does not clobber it.
+	 * Returns false if no active task or task not found.
+	 */
+	async updateStatus(taskStatus: TaskIndexEntry["taskStatus"]): Promise<boolean> {
+		if (!this.activeTaskId) return false
+		const index = await this.read()
+		const entry = index.entries.find((e) => e.taskId === this.activeTaskId)
+		if (!entry) return false
+		entry.taskStatus = taskStatus
+		entry.updatedAt = new Date().toISOString()
+		await this.write(index)
+		return true
 	}
 
 	/**

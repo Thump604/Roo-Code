@@ -11,6 +11,7 @@ import {
 import { isValidOutputFormat } from "@/types/json-events.js"
 
 import { TaskIndex } from "@/core/task-index/index.js"
+import { HookManager } from "@/core/hooks/index.js"
 import { getConfigDir } from "@/lib/storage/config-dir.js"
 
 import { isExpectedControlFlowError } from "./cancellation.js"
@@ -255,9 +256,6 @@ export async function runNonInteractiveCliSession({
 			stdinPromptStream: useStdinPromptStream,
 			bootstrapResumeForStdinStream,
 			taskIndex,
-			workspacePath: runtimeOptions.workspacePath,
-			model: runtimeOptions.model,
-			provider: runtimeOptions.provider,
 		})
 
 		await activeSessionController.start(
@@ -269,9 +267,33 @@ export async function runNonInteractiveCliSession({
 			}),
 		)
 
+		// Record task start in index AFTER launch succeeds.
+		// Uses a generated label — never raw prompt text.
+		if (prompt) {
+			const taskId = requestedCreateSessionId || `task-${Date.now()}`
+			void taskIndex
+				.upsert({
+					taskId,
+					cwd: runtimeOptions.workspacePath || process.cwd(),
+					promptSummary: `CLI task started at ${new Date().toISOString().slice(0, 19)}`,
+					taskStatus: "running",
+					model: runtimeOptions.model,
+					provider: runtimeOptions.provider,
+				})
+				.catch(() => {})
+		}
+
 		if (useStdinPromptStream) {
 			if (!jsonEmitter || outputFormat !== "stream-json") {
 				throw new Error("--stdin-prompt-stream requires --output-format=stream-json to emit control events")
+			}
+
+			// Load hooks from workspace .mesa/hooks.json or .roo/hooks.json
+			const hookManager = new HookManager()
+			try {
+				await hookManager.loadConfig(runtimeOptions.workspacePath || process.cwd())
+			} catch {
+				// Config load failure is not fatal — hooks just won't run
 			}
 
 			await runStdinStreamMode({
@@ -280,6 +302,7 @@ export async function runNonInteractiveCliSession({
 				setStreamRequestId: (id) => {
 					streamRequestId = id
 				},
+				hookManager: hookManager.hookCount > 0 ? hookManager : undefined,
 			})
 		}
 

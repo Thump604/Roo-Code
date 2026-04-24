@@ -164,6 +164,53 @@ describe("TaskIndex", () => {
 		})
 	})
 
+	describe("updateStatus", () => {
+		it("updates status of most recently upserted task", async () => {
+			const dir = await makeTempDir()
+			const index = new TaskIndex(dir)
+
+			await index.upsert(makeEntry("task-1"))
+			const result = await index.updateStatus("completed")
+			expect(result).toBe(true)
+
+			const entry = await index.get("task-1")
+			expect(entry?.taskStatus).toBe("completed")
+		})
+
+		it("preserves existing summary on status update", async () => {
+			const dir = await makeTempDir()
+			const index = new TaskIndex(dir)
+
+			await index.upsert(makeEntry("task-1", { promptSummary: "original summary" }))
+			await index.updateStatus("completed")
+
+			const entry = await index.get("task-1")
+			expect(entry?.promptSummary).toBe("original summary")
+		})
+
+		it("returns false when no active task", async () => {
+			const dir = await makeTempDir()
+			const index = new TaskIndex(dir)
+
+			const result = await index.updateStatus("completed")
+			expect(result).toBe(false)
+		})
+	})
+
+	describe("upsert preserves summary", () => {
+		it("does not clobber existing summary with empty string", async () => {
+			const dir = await makeTempDir()
+			const index = new TaskIndex(dir)
+
+			await index.upsert(makeEntry("task-1", { promptSummary: "original" }))
+			await index.upsert(makeEntry("task-1", { promptSummary: "", taskStatus: "completed" }))
+
+			const entry = await index.get("task-1")
+			expect(entry?.promptSummary).toBe("original")
+			expect(entry?.taskStatus).toBe("completed")
+		})
+	})
+
 	describe("get", () => {
 		it("returns entry by taskId", async () => {
 			const dir = await makeTempDir()
