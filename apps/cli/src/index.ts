@@ -8,6 +8,11 @@ import {
 	listModes,
 	listModels,
 	listSessions,
+	tasksList,
+	tasksShow,
+	tasksPin,
+	tasksUnpin,
+	tasksRemove,
 	doctor,
 	useRuntime,
 	upgrade,
@@ -180,6 +185,54 @@ program
 	.option("--wait-seconds <seconds>", "How long to wait for the runtime to become ready before returning", "20")
 	.action(async (target: string | undefined, options: Parameters<typeof useRuntime>[1]) => {
 		await runListAction(() => useRuntime(target, options))
+	})
+
+// ---------------------------------------------------------------------------
+// mesa tasks
+// ---------------------------------------------------------------------------
+
+const tasksCommand = program.command("tasks").description("Manage the local task index")
+
+tasksCommand
+	.command("list")
+	.description("List recent tasks")
+	.option("-w, --workspace <path>", "Workspace directory path (defaults to current working directory)")
+	.option("--format <format>", 'Output format: "json" (default) or "text"', "json")
+	.action(async (options: Parameters<typeof tasksList>[0]) => {
+		await runListAction(() => tasksList(options))
+	})
+
+tasksCommand
+	.command("show")
+	.description("Show details for a specific task")
+	.argument("<id>", "Task ID")
+	.option("--format <format>", 'Output format: "json" (default) or "text"', "json")
+	.action(async (taskId: string, options: Parameters<typeof tasksShow>[1]) => {
+		await runListAction(() => tasksShow(taskId, options))
+	})
+
+tasksCommand
+	.command("pin")
+	.description("Pin a task to prevent it from being trimmed")
+	.argument("<id>", "Task ID")
+	.action(async (taskId: string) => {
+		await runListAction(() => tasksPin(taskId))
+	})
+
+tasksCommand
+	.command("unpin")
+	.description("Unpin a task")
+	.argument("<id>", "Task ID")
+	.action(async (taskId: string) => {
+		await runListAction(() => tasksUnpin(taskId))
+	})
+
+tasksCommand
+	.command("remove")
+	.description("Remove a task from the index")
+	.argument("<id>", "Task ID")
+	.action(async (taskId: string) => {
+		await runListAction(() => tasksRemove(taskId))
 	})
 
 program.parse()
