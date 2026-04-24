@@ -610,11 +610,9 @@ describe("OpenRouterHandler", () => {
 			expect(allText).toContain("not reasoning")
 		})
 
-		it("extracts top-level reasoning field via adapter for DeepSeek models", async () => {
-			const handler = new OpenRouterHandler({
-				...mockOptions,
-				openRouterModelId: "deepseek/deepseek-r1",
-			})
+		it("extracts top-level reasoning field for any model (not gated by family)", async () => {
+			// Uses Anthropic model — reasoning extraction is NOT model-gated
+			const handler = new OpenRouterHandler(mockOptions)
 
 			const mockStream = {
 				async *[Symbol.asyncIterator]() {

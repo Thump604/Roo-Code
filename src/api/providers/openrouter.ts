@@ -383,10 +383,13 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			}
 		}
 
-		// Create adapter based on the resolved model ID. Only models known
-		// to emit <think> tags get the OpenAICompatibleAdapter (tag stripping).
-		// Anthropic, Gemini, and OpenAI models routed through OpenRouter use
-		// the passthrough adapter so their content is not corrupted.
+		// Tag stripping is model-gated: only models known to emit <think>
+		// tags get the OpenAICompatibleAdapter. Anthropic/Gemini/OpenAI content
+		// passes through unmodified.
+		//
+		// Top-level reasoning field extraction is separate — any OpenRouter
+		// model can send delta.reasoning, so that path is always active
+		// (handled inline below, not via the adapter).
 		const adapterProvider = modelEmitsThinkTags(modelId) ? "openai-compatible" : "passthrough"
 		const adapter = createModelAdapter(adapterProvider)
 		const reasoningProcessor = createReasoningProcessor(adapter)
@@ -491,10 +494,17 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 					}
 				}
 
-				// Handle top-level reasoning field via adapter.
-				// Skip if we've already yielded from reasoning_details to avoid duplicate display.
-				if (!hasYieldedReasoningFromDetails) {
-					yield* reasoningProcessor.processReasoning(delta as Record<string, unknown>)
+				// Handle top-level reasoning field directly (not via adapter).
+				// This field is valid for any OpenRouter model — not gated by
+				// model family. Skip only if reasoning_details already provided
+				// displayable reasoning to avoid duplication.
+				if (
+					!hasYieldedReasoningFromDetails &&
+					"reasoning" in delta &&
+					typeof delta.reasoning === "string" &&
+					delta.reasoning
+				) {
+					yield { type: "reasoning" as const, text: delta.reasoning }
 				}
 
 				// Emit raw tool call chunks - NativeToolCallParser handles state management
