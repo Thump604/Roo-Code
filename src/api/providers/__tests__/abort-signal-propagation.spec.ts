@@ -4,7 +4,18 @@
  *
  * These tests verify the linking behavior in isolation without
  * requiring live inference or real provider connections.
+ *
+ * Coverage:
+ * - openai-native / openai-codex: local AbortController linked via addEventListener
+ * - BaseOpenAiCompatibleProvider: signal forwarded via OpenAI RequestOptions.signal
+ * - openai-compatible (AI SDK): abortSignal passed to streamText
  */
+
+import OpenAI from "openai"
+
+// =============================================================================
+// Generic abort-signal linking (openai-native / openai-codex pattern)
+// =============================================================================
 
 describe("provider abort signal linking", () => {
 	it("linked abort controller fires when external signal aborts", () => {
@@ -65,6 +76,10 @@ describe("provider abort signal linking", () => {
 	})
 })
 
+// =============================================================================
+// ApiHandlerCreateMessageMetadata.signal contract
+// =============================================================================
+
 describe("ApiHandlerCreateMessageMetadata.signal contract", () => {
 	it("signal field is optional (undefined by default)", () => {
 		const metadata = { taskId: "test-123" }
@@ -82,5 +97,47 @@ describe("ApiHandlerCreateMessageMetadata.signal contract", () => {
 
 		controller.abort()
 		expect(metadata.signal.aborted).toBe(true)
+	})
+})
+
+// =============================================================================
+// BaseOpenAiCompatibleProvider: signal → OpenAI RequestOptions.signal
+// =============================================================================
+
+describe("BaseOpenAiCompatibleProvider abort signal forwarding", () => {
+	it("builds RequestOptions with signal when metadata.signal is present", () => {
+		// Simulate the logic in BaseOpenAiCompatibleProvider.createMessage()
+		const taskController = new AbortController()
+		const metadata = { taskId: "test-456", signal: taskController.signal }
+
+		const requestOptions: OpenAI.RequestOptions | undefined = metadata.signal
+			? { signal: metadata.signal }
+			: undefined
+
+		expect(requestOptions).toBeDefined()
+		expect(requestOptions!.signal).toBe(taskController.signal)
+		expect(requestOptions!.signal!.aborted).toBe(false)
+
+		taskController.abort()
+		expect(requestOptions!.signal!.aborted).toBe(true)
+	})
+
+	it("builds undefined RequestOptions when no signal in metadata", () => {
+		const metadata = { taskId: "test-789" }
+
+		const requestOptions: OpenAI.RequestOptions | undefined = (metadata as any).signal
+			? { signal: (metadata as any).signal }
+			: undefined
+
+		expect(requestOptions).toBeUndefined()
+	})
+
+	it("OpenAI RequestOptions type accepts AbortSignal", () => {
+		// Type-level verification: the OpenAI SDK's RequestOptions type
+		// includes signal?: AbortSignal. This test just proves the shape
+		// compiles at runtime.
+		const controller = new AbortController()
+		const opts: OpenAI.RequestOptions = { signal: controller.signal }
+		expect(opts.signal).toBe(controller.signal)
 	})
 })

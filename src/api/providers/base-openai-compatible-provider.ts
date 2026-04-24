@@ -122,7 +122,13 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 		messages: Anthropic.Messages.MessageParam[],
 		metadata?: ApiHandlerCreateMessageMetadata,
 	): ApiStream {
-		const stream = await this.createStream(systemPrompt, messages, metadata)
+		// Forward the Task-level abort signal so cancelCurrentRequest() reaches
+		// the underlying OpenAI SDK fetch call via RequestOptions.signal.
+		const requestOptions: OpenAI.RequestOptions | undefined = metadata?.signal
+			? { signal: metadata.signal }
+			: undefined
+
+		const stream = await this.createStream(systemPrompt, messages, metadata, requestOptions)
 
 		// Use the adapter to decide whether <think> tags should be extracted.
 		// When the adapter says to strip, TagMatcher splits them into reasoning

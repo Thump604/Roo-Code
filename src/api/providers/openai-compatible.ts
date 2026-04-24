@@ -166,6 +166,8 @@ export abstract class OpenAICompatibleHandler extends BaseProvider implements Si
 		const aiSdkTools = convertToolsForAiSdk(openAiTools) as ToolSet | undefined
 
 		// Build the request options
+		// NOTE: AI SDK streamText supports abortSignal for cancellation.
+		// Wire metadata.signal here when this provider adopts the adapter path.
 		const requestOptions: Parameters<typeof streamText>[0] = {
 			model: languageModel,
 			system: systemPrompt,
@@ -174,6 +176,7 @@ export abstract class OpenAICompatibleHandler extends BaseProvider implements Si
 			maxOutputTokens: this.getMaxOutputTokens(),
 			tools: aiSdkTools,
 			toolChoice: this.mapToolChoice(metadata?.tool_choice),
+			abortSignal: metadata?.signal ?? undefined,
 		}
 
 		// Use streamText for streaming responses
