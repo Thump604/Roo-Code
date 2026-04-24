@@ -1,14 +1,12 @@
 /**
- * Pure helper for persisting and truncating oversized tool output.
+ * Generalized ArtifactStore — persisting and reading oversized tool output.
  *
- * Shared between UseMcpToolTool and ExecuteCommandTool so that tests
- * exercise the real production code path instead of duplicating logic.
+ * Supports artifact classes: command output (cmd-*), MCP output (mcp-*),
+ * search output (search-*), and test output (test-*). Each class uses
+ * the same storage layout, validation, and read-back path.
  *
  * Preview policy: HEAD-ONLY. The preview is the first N bytes of the
- * output. This is deliberate — MCP tool results are typically structured
- * data where the beginning contains schema/header information most useful
- * for the model. Tail-aware preview (head + tail split) is deferred to
- * the generalized ArtifactStore design.
+ * output. Tail-aware preview (head + tail split) is a future extension.
  */
 
 import * as fs from "fs/promises"
@@ -23,34 +21,54 @@ export interface TruncationResult {
 	truncated: boolean
 }
 
+// =========================================================================
+// Artifact ID validation
+// =========================================================================
+
+/** Recognized artifact class prefixes. */
+export const ARTIFACT_PREFIXES = ["cmd", "mcp", "search", "test"] as const
+export type ArtifactPrefix = (typeof ARTIFACT_PREFIXES)[number]
+
 /**
  * Validate that an artifact ID is basename-safe (no path traversal).
- * Accepts cmd-{id}.txt and mcp-{id}.txt formats only.
+ * Accepts cmd-*, mcp-*, search-*, and test-* formats.
  */
-const VALID_ARTIFACT_ID = /^(cmd|mcp)-[\w-]+\.txt$/
+const VALID_ARTIFACT_ID = /^(cmd|mcp|search|test)-[\w-]+\.txt$/
 
 export function isValidArtifactId(artifactId: string): boolean {
 	return VALID_ARTIFACT_ID.test(artifactId)
 }
 
+// =========================================================================
+// Artifact ID generation
+// =========================================================================
+
 /** Monotonic counter to prevent artifact ID collisions within a process. */
 let artifactCounter = 0
 
+/** Sanitize an execution ID for use in artifact file names. */
+function sanitizeExecutionId(executionId: string): string {
+	const sanitized = executionId.replace(/[^\w-]/g, "")
+	return sanitized || "unknown"
+}
+
+/**
+ * Generate a collision-resistant artifact ID for a given class.
+ *
+ * Combines the execution timestamp with a monotonic counter so two
+ * artifact writes in the same millisecond get distinct file names.
+ * The executionId is sanitized to prevent path traversal.
+ */
+export function generateArtifactId(prefix: ArtifactPrefix, executionId: string): string {
+	return `${prefix}-${sanitizeExecutionId(executionId)}-${artifactCounter++}.txt`
+}
+
 /**
  * Generate a collision-resistant MCP artifact ID.
- *
- * Combines the execution timestamp with a monotonic counter so two MCP
- * tool calls in the same millisecond get distinct file names.
- *
- * The executionId is sanitized to prevent path traversal — only word
- * characters and hyphens are allowed. Any other character is stripped.
+ * Convenience alias for `generateArtifactId("mcp", executionId)`.
  */
 export function generateMcpArtifactId(executionId: string): string {
-	const sanitized = executionId.replace(/[^\w-]/g, "")
-	if (!sanitized) {
-		return `mcp-unknown-${artifactCounter++}.txt`
-	}
-	return `mcp-${sanitized}-${artifactCounter++}.txt`
+	return generateArtifactId("mcp", executionId)
 }
 
 /**

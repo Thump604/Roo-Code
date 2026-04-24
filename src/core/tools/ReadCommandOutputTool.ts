@@ -115,7 +115,7 @@ export class ReadCommandOutputTool extends BaseTool<"read_command_output"> {
 			task.consecutiveMistakeCount++
 			task.recordToolError("read_command_output")
 			task.didToolFailInCurrentTurn = true
-			const errorMsg = `Invalid artifact_id format: "${artifact_id}". Expected format: cmd-{timestamp}.txt or mcp-{id}.txt (e.g., "cmd-1706119234567.txt", "mcp-1706119234567-0.txt")`
+			const errorMsg = `Invalid artifact_id format: "${artifact_id}". Expected format: {prefix}-{id}.txt where prefix is cmd, mcp, search, or test (e.g., "cmd-1706119234567.txt", "mcp-1706119234567-0.txt")`
 			await task.say("error", errorMsg)
 			pushToolResult(`Error: ${errorMsg}`)
 			return

@@ -22,9 +22,11 @@ import { TERMINAL_PREVIEW_BYTES } from "@roo-code/types"
 
 import {
 	maybeTruncateToolOutput,
+	generateArtifactId,
 	generateMcpArtifactId,
 	readArtifact,
 	isValidArtifactId,
+	ARTIFACT_PREFIXES,
 } from "../tool-output-artifacts"
 
 const threshold = TERMINAL_PREVIEW_BYTES["medium"] // 10KB
@@ -101,9 +103,13 @@ describe("maybeTruncateToolOutput — artifactId validation", () => {
 // =============================================================================
 
 describe("isValidArtifactId", () => {
-	it.each(["cmd-1706119234567.txt", "mcp-1706119234567-0.txt", "mcp-abc_def-3.txt"])("accepts valid ID: %s", (id) =>
-		expect(isValidArtifactId(id)).toBe(true),
-	)
+	it.each([
+		"cmd-1706119234567.txt",
+		"mcp-1706119234567-0.txt",
+		"mcp-abc_def-3.txt",
+		"search-1706119234567-0.txt",
+		"test-1706119234567-0.txt",
+	])("accepts valid ID: %s", (id) => expect(isValidArtifactId(id)).toBe(true))
 
 	it.each([
 		"../../../etc/passwd",
@@ -112,6 +118,7 @@ describe("isValidArtifactId", () => {
 		"evil-1234.txt",
 		"cmd-123;rm -rf.txt",
 		"cmd-$(whoami).txt",
+		"debug-123.txt",
 	])("rejects invalid ID: %s", (id) => expect(isValidArtifactId(id)).toBe(false))
 })
 
@@ -267,32 +274,47 @@ describe("ReadCommandOutputTool artifact_id validation", () => {
 // Artifact ID collision prevention
 // =============================================================================
 
-describe("generateMcpArtifactId — collision prevention", () => {
+describe("generateArtifactId — generalized artifact classes", () => {
+	it.each(ARTIFACT_PREFIXES)("generates valid ID for %s prefix", (prefix) => {
+		const id = generateArtifactId(prefix, "1706119234567")
+		expect(isValidArtifactId(id)).toBe(true)
+		expect(id).toMatch(new RegExp(`^${prefix}-`))
+	})
+
+	it("generates unique IDs across classes for same executionId", () => {
+		const mcpId = generateArtifactId("mcp", "same-ts")
+		const searchId = generateArtifactId("search", "same-ts")
+		const testId = generateArtifactId("test", "same-ts")
+		expect(new Set([mcpId, searchId, testId]).size).toBe(3)
+	})
+
+	it("sanitizes path traversal in executionId for all classes", () => {
+		for (const prefix of ARTIFACT_PREFIXES) {
+			const id = generateArtifactId(prefix, "../../etc/passwd")
+			expect(isValidArtifactId(id)).toBe(true)
+			expect(id).not.toContain("..")
+			expect(id).not.toContain("/")
+		}
+	})
+
+	it("handles empty executionId after sanitization", () => {
+		const id = generateArtifactId("test", "///...")
+		expect(isValidArtifactId(id)).toBe(true)
+		expect(id).toContain("unknown")
+	})
+})
+
+describe("generateMcpArtifactId — backward-compatible alias", () => {
 	it("generates unique IDs for same executionId", () => {
 		const id1 = generateMcpArtifactId("same-ts")
 		const id2 = generateMcpArtifactId("same-ts")
 		expect(id1).not.toBe(id2)
 	})
 
-	it("produces IDs matching artifact_id validation pattern", () => {
-		const validPattern = /^(cmd|mcp)-[\w-]+\.txt$/
+	it("produces IDs with mcp- prefix", () => {
 		const id = generateMcpArtifactId("1706119234567")
-		expect(validPattern.test(id)).toBe(true)
-	})
-
-	it("sanitizes path traversal in executionId", () => {
-		const validPattern = /^(cmd|mcp)-[\w-]+\.txt$/
-		const id = generateMcpArtifactId("../../etc/passwd")
-		expect(validPattern.test(id)).toBe(true)
-		expect(id).not.toContain("..")
-		expect(id).not.toContain("/")
-	})
-
-	it("handles empty executionId after sanitization", () => {
-		const validPattern = /^(cmd|mcp)-[\w-]+\.txt$/
-		const id = generateMcpArtifactId("///...")
-		expect(validPattern.test(id)).toBe(true)
-		expect(id).toContain("unknown")
+		expect(id).toMatch(/^mcp-/)
+		expect(isValidArtifactId(id)).toBe(true)
 	})
 
 	it("preserves normal executionId characters", () => {
@@ -382,5 +404,29 @@ describe("readArtifact — offset and limit reads", () => {
 		const result = await readArtifact(tmpDir, "task-rmb", artifactId, 6, 9)
 		// 6 bytes = 2 CJK chars offset, 9 bytes = 3 CJK chars
 		expect(result.content).toBe("あああ")
+	})
+
+	it("persists and reads back search-* artifacts", async () => {
+		const text = "search result ".repeat(1000)
+		const artifactId = generateArtifactId("search", "1706119234567")
+
+		const result = await maybeTruncateToolOutput(text, artifactId, "task-search", tmpDir)
+		expect(result.truncated).toBe(true)
+		expect(result.preview).toContain(artifactId)
+
+		const readResult = await readArtifact(tmpDir, "task-search", artifactId)
+		expect(readResult.content).toBe(text)
+	})
+
+	it("persists and reads back test-* artifacts", async () => {
+		const text = "PASS test_example\nFAIL test_broken\n".repeat(500)
+		const artifactId = generateArtifactId("test", "run-42")
+
+		const result = await maybeTruncateToolOutput(text, artifactId, "task-test", tmpDir)
+		expect(result.truncated).toBe(true)
+		expect(result.preview).toContain(artifactId)
+
+		const readResult = await readArtifact(tmpDir, "task-test", artifactId)
+		expect(readResult.content).toBe(text)
 	})
 })
