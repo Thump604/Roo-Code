@@ -2,13 +2,17 @@ import { useCallback, useRef } from "react"
 import type { ExtensionMessage, ClineMessage, ClineAsk, ClineSay, TodoItem } from "@roo-code/types"
 import { consolidateTokenUsage, consolidateApiRequests, consolidateCommands } from "@roo-code/core/cli"
 
+import { classifyAsk } from "../../agent/approval-adapter.js"
+
 import type { TUIMessage, ToolData } from "../types.js"
 import type { FileResult, SlashCommandResult, ModeResult } from "../components/autocomplete/index.js"
+import type { TuiApprovalAdapter } from "../tui-approval-adapter.js"
 import { useCLIStore } from "../store.js"
 import { extractToolData, formatToolOutput, formatToolAskMessage, parseTodosFromToolInfo } from "../utils/tools.js"
 
 export interface UseMessageHandlersOptions {
 	nonInteractive: boolean
+	tuiAdapter: TuiApprovalAdapter
 }
 
 export interface UseMessageHandlersReturn {
@@ -28,10 +32,12 @@ export interface UseMessageHandlersReturn {
  *
  * Transforms ClineMessage format to TUIMessage format and updates the store.
  */
-export function useMessageHandlers({ nonInteractive }: UseMessageHandlersOptions): UseMessageHandlersReturn {
+export function useMessageHandlers({
+	nonInteractive,
+	tuiAdapter,
+}: UseMessageHandlersOptions): UseMessageHandlersReturn {
 	const {
 		addMessage,
-		setPendingAsk,
 		setComplete,
 		setLoading,
 		setHasStartedTask,
@@ -264,37 +270,19 @@ export function useMessageHandlers({ nonInteractive }: UseMessageHandlersOptions
 				return
 			}
 
-			let suggestions: Array<{ answer: string; mode?: string | null }> | undefined
-			let questionText = text
-
-			if (ask === "followup") {
-				try {
-					const data = JSON.parse(text)
-					questionText = data.question || text
-					suggestions = Array.isArray(data.suggest) ? data.suggest : undefined
-				} catch {
-					// Use raw text
-				}
-			} else if (ask === "tool") {
-				try {
-					const toolInfo = JSON.parse(text) as Record<string, unknown>
-					questionText = formatToolAskMessage(toolInfo)
-				} catch {
-					// Use raw text if not valid JSON
-				}
-			}
-			// Note: ask === "command" is handled above before the nonInteractive block
-
+			// User-input asks — delegate to TUI approval adapter.
+			// The adapter uses classifyAsk (shared contract) and sets
+			// pendingAsk in the store via its onPendingAsk callback.
 			seenMessageIds.current.add(messageId)
 
-			setPendingAsk({
-				id: messageId,
-				type: ask,
-				content: questionText,
-				suggestions,
-			})
+			const clineMsg = { type: "ask" as const, ask, text, ts } as ClineMessage
+			const request = classifyAsk(ask, clineMsg)
+
+			if (request) {
+				tuiAdapter.handle(request).catch(() => {})
+			}
 		},
-		[addMessage, setPendingAsk, setComplete, setLoading, setHasStartedTask, nonInteractive, currentTodos, setTodos],
+		[addMessage, setComplete, setLoading, setHasStartedTask, nonInteractive, currentTodos, setTodos, tuiAdapter],
 	)
 
 	/**

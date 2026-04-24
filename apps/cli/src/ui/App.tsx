@@ -9,6 +9,7 @@ import { arePathsEqual } from "@/lib/utils/path.js"
 import { getContextWindow } from "@/lib/utils/context-window.js"
 
 import * as theme from "./theme.js"
+import { TuiApprovalAdapter } from "./tui-approval-adapter.js"
 import { useCLIStore } from "./store.js"
 import { useUIStateStore } from "./stores/uiStateStore.js"
 
@@ -131,6 +132,16 @@ function AppInner({ createCliRuntime, ...runtimeOptions }: TUIAppProps) {
 		return getContextWindow(routerModels, apiConfiguration)
 	}, [routerModels, apiConfiguration])
 
+	// TUI approval adapter — bridges ask requests to React state and back.
+	// Created once; uses the store's setPendingAsk as its state callback.
+	const tuiAdapterRef = useRef<TuiApprovalAdapter | null>(null)
+
+	if (!tuiAdapterRef.current) {
+		tuiAdapterRef.current = new TuiApprovalAdapter(useCLIStore.getState().setPendingAsk)
+	}
+
+	const tuiAdapter = tuiAdapterRef.current
+
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const autocompleteRef = useRef<AutocompleteInputHandle<any>>(null)
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,6 +186,7 @@ function AppInner({ createCliRuntime, ...runtimeOptions }: TUIAppProps) {
 		firstTextMessageSkipped,
 	} = useMessageHandlers({
 		nonInteractive,
+		tuiAdapter,
 	})
 
 	const {
@@ -224,6 +236,7 @@ function AppInner({ createCliRuntime, ...runtimeOptions }: TUIAppProps) {
 		runTask,
 		seenMessageIds,
 		firstTextMessageSkipped,
+		tuiAdapter,
 	})
 
 	// Initialize focus management hook
@@ -250,6 +263,12 @@ function AppInner({ createCliRuntime, ...runtimeOptions }: TUIAppProps) {
 			firstTextMessageSkipped,
 		})
 
+	// Wrap cancel to also dispose the approval adapter (rejects any pending ask promise)
+	const handleCancelTask = useCallback(() => {
+		tuiAdapter.dispose()
+		cancelTask?.()
+	}, [cancelTask, tuiAdapter])
+
 	// Initialize global input hook
 	useGlobalInput({
 		canToggleFocus,
@@ -259,7 +278,7 @@ function AppInner({ createCliRuntime, ...runtimeOptions }: TUIAppProps) {
 		currentMode,
 		mode,
 		setMode,
-		cancelTask,
+		cancelTask: handleCancelTask,
 		showInfo,
 		exit,
 		cleanup,

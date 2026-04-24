@@ -3,6 +3,7 @@ import { randomUUID } from "crypto"
 
 import { getGlobalCommand } from "../../lib/utils/commands.js"
 
+import type { TuiApprovalAdapter } from "../tui-approval-adapter.js"
 import { useCLIStore } from "../store.js"
 import { useUIStateStore } from "../stores/uiStateStore.js"
 
@@ -15,6 +16,7 @@ export interface UseTaskSubmitOptions {
 	runTask: ((prompt: string) => Promise<void>) | null
 	seenMessageIds: React.MutableRefObject<Set<string>>
 	firstTextMessageSkipped: React.MutableRefObject<boolean>
+	tuiAdapter: TuiApprovalAdapter
 }
 
 export interface UseTaskSubmitReturn {
@@ -29,7 +31,7 @@ export interface UseTaskSubmitReturn {
  * Responsibilities:
  * - Process user message submissions
  * - Detect and handle global commands (like /new)
- * - Handle pending ask responses
+ * - Handle pending ask responses (resolves the TUI approval adapter)
  * - Start new tasks or continue existing ones
  * - Handle Y/N approval responses
  */
@@ -42,18 +44,10 @@ export function useTaskSubmit({
 	runTask,
 	seenMessageIds,
 	firstTextMessageSkipped,
+	tuiAdapter,
 }: UseTaskSubmitOptions): UseTaskSubmitReturn {
-	const {
-		pendingAsk,
-		hasStartedTask,
-		isComplete,
-		addMessage,
-		setPendingAsk,
-		setHasStartedTask,
-		setLoading,
-		setComplete,
-		setError,
-	} = useCLIStore()
+	const { pendingAsk, hasStartedTask, isComplete, addMessage, setHasStartedTask, setLoading, setComplete, setError } =
+		useCLIStore()
 
 	const { setShowCustomInput, setIsTransitioningToCustomInput } = useUIStateStore()
 
@@ -102,9 +96,11 @@ export function useTaskSubmit({
 
 				addMessage({ id: randomUUID(), role: "user", content: trimmedText })
 
+				// Resolve the TUI adapter promise (clears pendingAsk internally)
+				tuiAdapter.resolve({ response: "messageResponse", text: trimmedText })
+
 				sendTaskMessage(trimmedText)
 
-				setPendingAsk(null)
 				setShowCustomInput(false)
 				setIsTransitioningToCustomInput(false)
 				setLoading(true)
@@ -145,7 +141,6 @@ export function useTaskSubmit({
 			hasStartedTask,
 			isComplete,
 			addMessage,
-			setPendingAsk,
 			setHasStartedTask,
 			setLoading,
 			setComplete,
@@ -154,34 +149,35 @@ export function useTaskSubmit({
 			setIsTransitioningToCustomInput,
 			seenMessageIds,
 			firstTextMessageSkipped,
+			tuiAdapter,
 		],
 	)
 
 	/**
-	 * Handle approval (Y key)
+	 * Handle approval (Y key) — resolves the adapter then dispatches via session controller.
 	 */
 	const handleApprove = useCallback(() => {
 		if (!approve) {
 			return
 		}
 
+		tuiAdapter.resolve({ response: "yesButtonClicked" })
 		approve()
-		setPendingAsk(null)
 		setLoading(true)
-	}, [approve, setPendingAsk, setLoading])
+	}, [approve, setLoading, tuiAdapter])
 
 	/**
-	 * Handle rejection (N key)
+	 * Handle rejection (N key) — resolves the adapter then dispatches via session controller.
 	 */
 	const handleReject = useCallback(() => {
 		if (!reject) {
 			return
 		}
 
+		tuiAdapter.resolve({ response: "noButtonClicked" })
 		reject()
-		setPendingAsk(null)
 		setLoading(true)
-	}, [reject, setPendingAsk, setLoading])
+	}, [reject, setLoading, tuiAdapter])
 
 	return {
 		handleSubmit,
