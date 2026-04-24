@@ -1,7 +1,6 @@
 import { randomUUID } from "crypto"
 
 import type {
-	ClineAsk,
 	ClineMessage,
 	RooCliStartCommand,
 	RooCliMessageCommand,
@@ -127,8 +126,8 @@ export class StdinStreamSession {
 	/** Active approval adapter for explicit approve/reject/respond commands. */
 	readonly approvalAdapter: StdinStreamApprovalAdapter
 
-	/** Last known ask type — used to detect ask transitions in state messages. */
-	private lastKnownAsk: ClineAsk | undefined
+	/** Timestamp of the last ask message we processed — keyed on message identity, not type. */
+	private lastProcessedAskTs: number | undefined
 
 	constructor(private readonly options: StdinStreamSessionOptions) {
 		this.approvalAdapter = new StdinStreamApprovalAdapter(options.jsonEmitter, () => this.latestTaskId)
@@ -521,7 +520,7 @@ export class StdinStreamSession {
 
 		// Dispose the approval adapter (rejects any pending ask promise)
 		this.approvalAdapter.dispose()
-		this.lastKnownAsk = undefined
+		this.lastProcessedAskTs = undefined
 
 		const hasTaskInFlight = Boolean(
 			this.activeTaskPromise ||
@@ -660,26 +659,35 @@ export class StdinStreamSession {
 	 * Check if the session controller transitioned to a new ask state.
 	 * If so, classify the ask and push it into the approval adapter.
 	 * The adapter emits an approval_request event and waits for a response.
+	 *
+	 * Identity is tracked by lastMessageTs (unique per ask message), NOT by
+	 * ask type alone. This correctly handles consecutive same-type asks
+	 * (e.g., tool → approve → tool → approve).
 	 */
 	private detectAskTransition(): void {
-		const isWaiting = this.options.sessionController.isWaitingForInput()
-		const currentAsk = this.options.sessionController.getCurrentAsk()
+		const agentState = this.options.sessionController.getAgentState()
 
-		if (!isWaiting || !currentAsk) {
-			this.lastKnownAsk = undefined
+		if (!agentState.isWaitingForInput || !agentState.currentAsk) {
+			// Don't clear lastProcessedAskTs — it's a watermark that prevents
+			// re-emitting for the same message after state fluctuations.
 			return
 		}
 
-		// Only act on NEW asks (not repeated state updates for the same ask)
-		if (currentAsk === this.lastKnownAsk) {
+		// Key on message timestamp — two consecutive tool asks have different ts values.
+		const askTs = agentState.lastMessageTs
+		if (askTs === undefined || askTs === this.lastProcessedAskTs) {
 			return
 		}
 
-		this.lastKnownAsk = currentAsk
+		this.lastProcessedAskTs = askTs
 
-		// Skip asks that don't need user input (non-blocking, auto-continued)
-		const clineMsg = { type: "ask" as const, ask: currentAsk, text: "", ts: Date.now() } as ClineMessage
-		const request = classifyAsk(currentAsk, clineMsg)
+		// Use the real last message from agent state — carries the full payload
+		// (command text, tool JSON, followup question) that the orchestrator needs.
+		const message =
+			agentState.lastMessage ??
+			({ type: "ask" as const, ask: agentState.currentAsk, text: "", ts: askTs } as ClineMessage)
+
+		const request = classifyAsk(agentState.currentAsk, message)
 
 		if (!request) {
 			return
