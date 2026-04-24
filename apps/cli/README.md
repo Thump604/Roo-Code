@@ -41,12 +41,12 @@ and fail-closed behavior for unqualified features.
 Examples during the transition:
 
 ```bash
-roo use \
+mesa use \
   --runtime vllm-mlx \
   --protocol openai \
   --model mlx-community/Qwen3-4B-4bit
 
-roo doctor \
+mesa doctor \
   --runtime vllm-mlx \
   --protocol openai \
   --base-url http://127.0.0.1:8080/v1
