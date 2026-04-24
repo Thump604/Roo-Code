@@ -93,23 +93,37 @@ export interface ModelAdapter {
 // =============================================================================
 
 /**
- * Model ID prefixes known to emit `<think>` tags in content.
- * Used by OpenRouter to selectively enable tag stripping.
+ * Explicit model ID patterns known to emit `<think>` tags in content.
+ *
+ * Only reasoning-specific model variants are listed — general chat/code
+ * models from the same vendors (e.g., qwen-2.5-coder, llama-3.1-instruct)
+ * do NOT emit `<think>` tags and must not be stripped.
+ *
+ * Patterns are checked against the lowercased model ID via includes()
+ * for suffixes and startsWith() for prefixes.
  */
-export const THINK_TAG_MODEL_PREFIXES = [
-	"deepseek/",
-	"qwen/",
-	"meta-llama/",
-	"mistralai/mistral-small", // Mistral small can emit <think>
-] as const
+const THINK_TAG_MODEL_IDS: readonly string[] = ["deepseek/deepseek-r1", "deepseek/deepseek-reasoner"]
+
+const THINK_TAG_SUFFIXES: readonly string[] = [
+	":thinking",
+	"-thinking",
+	"/qwq", // Qwen's reasoning model (qwen/qwq-*)
+]
 
 /**
- * Check whether a model ID corresponds to a family that emits
- * `<think>` reasoning tags in content.
+ * Check whether a model ID corresponds to a reasoning model that emits
+ * `<think>` tags in content.
+ *
+ * This is intentionally narrow: only models with known reasoning-tag
+ * behavior are matched. If a new reasoning model is released, add it
+ * here rather than matching by vendor prefix.
  */
 export function modelEmitsThinkTags(modelId: string): boolean {
 	const lower = modelId.toLowerCase()
-	return THINK_TAG_MODEL_PREFIXES.some((prefix) => lower.startsWith(prefix))
+	if (THINK_TAG_MODEL_IDS.some((id) => lower.startsWith(id))) {
+		return true
+	}
+	return THINK_TAG_SUFFIXES.some((suffix) => lower.includes(suffix))
 }
 
 /**

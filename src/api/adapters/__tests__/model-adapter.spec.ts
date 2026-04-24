@@ -41,12 +41,12 @@ describe("createModelAdapter", () => {
 describe("modelEmitsThinkTags", () => {
 	it.each([
 		"deepseek/deepseek-r1",
-		"deepseek/deepseek-chat",
-		"qwen/qwen-2.5-coder-32b",
+		"deepseek/deepseek-r1-0528",
+		"deepseek/deepseek-reasoner",
 		"qwen/qwq-32b",
-		"meta-llama/llama-3.1-70b",
-		"mistralai/mistral-small-latest",
-	])("returns true for %s", (modelId) => {
+		"anthropic/claude-3.7-sonnet:thinking",
+		"some-provider/model-name-thinking",
+	])("returns true for reasoning model %s", (modelId) => {
 		expect(modelEmitsThinkTags(modelId)).toBe(true)
 	})
 
@@ -55,8 +55,15 @@ describe("modelEmitsThinkTags", () => {
 		"google/gemini-2.5-pro",
 		"openai/gpt-4o",
 		"openai/o1",
+		"deepseek/deepseek-chat",
+		"deepseek/deepseek-coder",
+		"qwen/qwen-2.5-coder-32b",
+		"qwen/qwen-2.5-72b-instruct",
+		"meta-llama/llama-3.1-70b-instruct",
+		"meta-llama/llama-4-maverick",
+		"mistralai/mistral-small-latest",
 		"mistralai/mistral-large-latest",
-	])("returns false for %s", (modelId) => {
+	])("returns false for non-reasoning model %s", (modelId) => {
 		expect(modelEmitsThinkTags(modelId)).toBe(false)
 	})
 })
