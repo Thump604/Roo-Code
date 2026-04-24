@@ -38,7 +38,9 @@ See [ROADMAP.md](ROADMAP.md) for the current public plan.
 - parallel task and sub-agent workflows without context-jump hacks
 - explicit user control over tools, approvals, model selection, MCP scope, and
   config
-- multi-provider ecosystem with normalized capability profiles
+- multi-provider ecosystem with normalized capability profiles (OpenRouter
+  migrated to shared ModelAdapter with tag stripping and reasoning extraction)
+- generalized artifact store for oversized tool, MCP, search, and test output
 - editor integration later, after the CLI core is solid
 
 ## Local Runtime Goals

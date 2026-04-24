@@ -42,8 +42,10 @@ Implemented:
 - shared tool approval semantics with typed `approvalId` enforcement
 - shared cancellation and resume behavior
 - stable text, JSON, and stream-json output contracts
-- PTY and non-interactive smoke tests for terminal paths
-- same-type consecutive approval coverage
+- PTY and non-interactive smoke tests for terminal paths (ping, shutdown,
+  orphan-approve, init-and-ack, and skipped live-inference scenarios)
+- same-type consecutive approval coverage with integration tests proving
+  distinct approvalIds, payload preservation, and fail-closed malformed IDs
 - NDJSON stdin control protocol with approval request/response lifecycle
 - reasoning tag extraction via shared ModelAdapter and TagMatcher
 - abort signal propagation to all OpenAI-SDK-based providers
@@ -158,8 +160,11 @@ Implemented:
 - ModelAdapter boundary with explicit capabilities, image conversion,
   reasoning extraction, and tag stripping policy
 - centralized reasoning stream processor (TagMatcher + extractReasoning)
+- ModelAdapter wired into OpenRouter for `<think>` tag stripping and shared
+  reasoning extraction alongside structured reasoning_details
 - abort signal wired into all OpenAI-SDK-based streaming providers
-- collision-safe MCP artifact IDs with path traversal prevention
+- generalized ArtifactStore supporting command, MCP, search, and test
+  output classes with collision-safe IDs and path traversal prevention
 - oversized tool output stored as local artifacts with byte-safe previews
 
 In progress:

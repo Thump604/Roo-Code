@@ -552,12 +552,124 @@ def case_stdin_stream_cancel_no_partial(context: SmokeContext) -> None:
     )
 
 
+def case_stdin_stream_ping_pong(context: SmokeContext) -> None:
+    """Verify ping/pong roundtrip without starting a task (no inference needed)."""
+    ping_request_id = f"ping-{int(time.time() * 1000)}"
+    shutdown_request_id = f"ping-shutdown-{int(time.time() * 1000)}"
+
+    with StreamSession(context, "stdin-stream-ping-pong") as session:
+        events = session.read_events(10.0)
+
+        init_events = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
+        if not init_events:
+            raise SmokeFailure(session.failure_message("did not observe system:init event"))
+
+        # Send ping and verify pong ack + done
+        session.send_command({"command": "ping", "requestId": ping_request_id})
+        events = session.read_events(5.0)
+
+        pong_ack = [
+            e for e in events
+            if e.get("type") == "control"
+            and e.get("subtype") == "ack"
+            and e.get("requestId") == ping_request_id
+            and e.get("code") == "accepted"
+        ]
+        pong_done = [
+            e for e in events
+            if e.get("type") == "control"
+            and e.get("subtype") == "done"
+            and e.get("requestId") == ping_request_id
+            and e.get("code") == "pong"
+        ]
+        if not pong_ack:
+            raise SmokeFailure(session.failure_message("did not observe ping ack"))
+        if not pong_done:
+            raise SmokeFailure(session.failure_message("did not observe pong done"))
+
+        # Shutdown
+        session.send_command({"command": "shutdown", "requestId": shutdown_request_id})
+        session.read_events(3.0)
+
+
+def case_stdin_stream_approve_no_task(context: SmokeContext) -> None:
+    """Verify approve without active task emits no_pending_approval (no inference needed)."""
+    approve_request_id = f"approve-no-task-{int(time.time() * 1000)}"
+    shutdown_request_id = f"approve-no-task-shutdown-{int(time.time() * 1000)}"
+
+    with StreamSession(context, "stdin-stream-approve-no-task") as session:
+        events = session.read_events(10.0)
+
+        init_events = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
+        if not init_events:
+            raise SmokeFailure(session.failure_message("did not observe system:init event"))
+
+        # Send approve without any pending approval
+        session.send_command({
+            "command": "approve",
+            "requestId": approve_request_id,
+            "approvalId": "approval-nonexistent",
+        })
+        events = session.read_events(5.0)
+
+        error_events = [
+            e for e in events
+            if e.get("type") == "control"
+            and e.get("subtype") == "error"
+            and e.get("code") == "no_pending_approval"
+        ]
+        if not error_events:
+            raise SmokeFailure(
+                session.failure_message("did not observe no_pending_approval error for orphan approve")
+            )
+
+        # Shutdown
+        session.send_command({"command": "shutdown", "requestId": shutdown_request_id})
+        session.read_events(3.0)
+
+
+def case_stdin_stream_shutdown_clean(context: SmokeContext) -> None:
+    """Verify clean shutdown sequence: ack + done for shutdown command (no inference needed)."""
+    shutdown_request_id = f"shutdown-{int(time.time() * 1000)}"
+
+    with StreamSession(context, "stdin-stream-shutdown-clean") as session:
+        events = session.read_events(10.0)
+
+        init_events = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
+        if not init_events:
+            raise SmokeFailure(session.failure_message("did not observe system:init event"))
+
+        session.send_command({"command": "shutdown", "requestId": shutdown_request_id})
+        events = session.read_events(5.0)
+
+        shutdown_ack = [
+            e for e in events
+            if e.get("type") == "control"
+            and e.get("subtype") == "ack"
+            and e.get("requestId") == shutdown_request_id
+        ]
+        shutdown_done = [
+            e for e in events
+            if e.get("type") == "control"
+            and e.get("subtype") == "done"
+            and e.get("requestId") == shutdown_request_id
+            and e.get("code") == "shutdown_requested"
+        ]
+        if not shutdown_ack:
+            raise SmokeFailure(session.failure_message("did not observe shutdown ack"))
+        if not shutdown_done:
+            raise SmokeFailure(session.failure_message("did not observe shutdown done"))
+
+
 CASES = {
     "streaming-baseline-live": case_streaming_baseline_live,
     "print-live": case_print_live,
     "stdin-stream-live": case_stdin_stream_live,
     "json-output-parseable": case_json_output_parseable,
     "stdin-stream-init-and-ack": case_stdin_stream_init_and_ack,
+    "stdin-stream-ping-pong": case_stdin_stream_ping_pong,
+    "stdin-stream-approve-no-task": case_stdin_stream_approve_no_task,
+    "stdin-stream-shutdown-clean": case_stdin_stream_shutdown_clean,
     "stdin-stream-wrong-approval-id": case_stdin_stream_wrong_approval_id,
     "stdin-stream-cancel-no-partial": case_stdin_stream_cancel_no_partial,
 }
