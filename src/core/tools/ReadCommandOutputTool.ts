@@ -213,9 +213,9 @@ export class ReadCommandOutputTool extends BaseTool<"read_command_output"> {
 	 * @private
 	 */
 	private isValidArtifactId(artifactId: string): boolean {
-		// Only allow alphanumeric, hyphens, underscores, and dots
-		// Must match pattern cmd-{digits}.txt
-		const validPattern = /^cmd-\d+\.txt$/
+		// Accept command artifacts (cmd-{digits}.txt) and MCP tool artifacts (mcp-{id}.txt).
+		// Only allows alphanumeric, hyphens, underscores, and dots to prevent path traversal.
+		const validPattern = /^(cmd|mcp)-[\w-]+\.txt$/
 		return validPattern.test(artifactId)
 	}
 

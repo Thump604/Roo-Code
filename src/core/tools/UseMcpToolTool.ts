@@ -1,10 +1,15 @@
+import * as fs from "fs/promises"
+import * as path from "path"
+
 import type { ClineAskUseMcpServer, McpExecutionStatus } from "@roo-code/types"
+import { TERMINAL_PREVIEW_BYTES, DEFAULT_TERMINAL_OUTPUT_PREVIEW_SIZE } from "@roo-code/types"
 
 import { Task } from "../task/Task"
 import { formatResponse } from "../prompts/responses"
 import { t } from "../../i18n"
 import type { ToolUse } from "../../shared/tools"
 import { toolNamesMatch } from "../../utils/mcp-name"
+import { getTaskDirectoryPath } from "../../utils/storage"
 
 import { BaseTool, ToolCallbacks } from "./BaseTool"
 
@@ -345,8 +350,51 @@ export class UseMcpToolTool extends BaseTool<"use_mcp_tool"> {
 			})
 		}
 
-		await task.say("mcp_server_response", toolResultPretty, images)
-		pushToolResult(formatResponse.toolResult(toolResultPretty, images))
+		// Truncate oversized MCP results to prevent context window overflow.
+		// Full output is persisted to disk; preview + artifact marker go into context.
+		const truncated = await this.maybeTruncateResult(task, toolResultPretty, executionId)
+
+		await task.say("mcp_server_response", truncated.preview, images)
+		pushToolResult(formatResponse.toolResult(truncated.preview, images))
+	}
+
+	/**
+	 * If the MCP result exceeds the preview threshold, persist the full
+	 * output to disk and return a bounded preview with an artifact marker.
+	 * Reuses the command-output directory and is readable via read_command_output.
+	 */
+	private async maybeTruncateResult(
+		task: Task,
+		text: string,
+		executionId: string,
+	): Promise<{ preview: string; truncated: boolean }> {
+		const threshold = TERMINAL_PREVIEW_BYTES[DEFAULT_TERMINAL_OUTPUT_PREVIEW_SIZE]
+		const textBytes = Buffer.byteLength(text, "utf-8")
+
+		if (textBytes <= threshold) {
+			return { preview: text, truncated: false }
+		}
+
+		// Persist full output to disk
+		const artifactId = `mcp-${executionId}.txt`
+		const globalStoragePath = task.providerRef.deref()?.context?.globalStorageUri?.fsPath
+
+		if (globalStoragePath) {
+			try {
+				const taskDir = await getTaskDirectoryPath(globalStoragePath, task.taskId)
+				const storageDir = path.join(taskDir, "command-output")
+				await fs.mkdir(storageDir, { recursive: true })
+				await fs.writeFile(path.join(storageDir, artifactId), text, "utf-8")
+			} catch {
+				// If persistence fails, return full text rather than losing data
+				return { preview: text, truncated: false }
+			}
+		}
+
+		// Build bounded preview: first N bytes + truncation marker
+		const previewText = text.slice(0, threshold)
+		const marker = `\n\n[Truncated: ${textBytes} bytes total. Use read_command_output with artifact_id="${artifactId}" to read the full output.]`
+		return { preview: previewText + marker, truncated: true }
 	}
 }
 
