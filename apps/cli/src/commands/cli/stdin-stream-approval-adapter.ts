@@ -1,0 +1,225 @@
+/**
+ * StdinStreamApprovalAdapter — active approval adapter for stdin-stream mode.
+ *
+ * Replaces the passive message-as-response pattern with an explicit
+ * approval request/response lifecycle:
+ *
+ * 1. When the agent needs user input, handle() emits an approval_request event
+ * 2. The orchestrator reads the event and sends an approve/reject/respond command
+ * 3. The corresponding method resolves the pending Promise
+ * 4. The resolved response is dispatched to the session controller
+ *
+ * Backward compatibility: the existing message command can still act as an
+ * implicit approval response when the adapter has a pending request.
+ */
+
+import type { ClineAsk, RooCliCommandName } from "@roo-code/types"
+
+import type {
+	ApprovalAdapter,
+	ApprovalRequest,
+	ApprovalRequestKind,
+	ApprovalResponse,
+} from "@/agent/approval-adapter.js"
+import type { JsonEventEmitter } from "@/agent/json-event-emitter.js"
+
+export class StdinStreamApprovalAdapter implements ApprovalAdapter {
+	private pending: {
+		resolve: (response: ApprovalResponse) => void
+		reject: (reason?: unknown) => void
+		request: ApprovalRequest
+	} | null = null
+
+	constructor(
+		private readonly emitter: JsonEventEmitter,
+		private readonly taskIdProvider: () => string | undefined,
+	) {}
+
+	get hasPending(): boolean {
+		return this.pending !== null
+	}
+
+	get currentRequest(): ApprovalRequest | null {
+		return this.pending?.request ?? null
+	}
+
+	async handle(request: ApprovalRequest): Promise<ApprovalResponse> {
+		// Dispose any stale pending request
+		if (this.pending) {
+			this.dispose()
+		}
+
+		return new Promise<ApprovalResponse>((resolve, reject) => {
+			this.pending = { resolve, reject, request }
+			this.emitApprovalRequest(request)
+		})
+	}
+
+	/**
+	 * Resolve with approval (explicit approve command).
+	 */
+	approve(requestId: string): void {
+		if (!this.pending) {
+			this.emitNoApprovalPending(requestId, "approve")
+			return
+		}
+
+		const { resolve } = this.pending
+		this.pending = null
+		this.emitApprovalDone(requestId, "approve", "approved")
+		resolve({ response: "yesButtonClicked" })
+	}
+
+	/**
+	 * Resolve with rejection (explicit reject command).
+	 */
+	reject(requestId: string): void {
+		if (!this.pending) {
+			this.emitNoApprovalPending(requestId, "reject")
+			return
+		}
+
+		const { resolve } = this.pending
+		this.pending = null
+		this.emitApprovalDone(requestId, "reject", "rejected")
+		resolve({ response: "noButtonClicked" })
+	}
+
+	/**
+	 * Resolve with a text response (explicit respond command).
+	 */
+	respond(requestId: string, text: string): void {
+		if (!this.pending) {
+			this.emitNoApprovalPending(requestId, "respond")
+			return
+		}
+
+		const { resolve } = this.pending
+		this.pending = null
+		this.emitApprovalDone(requestId, "respond", "responded")
+		resolve({ response: "messageResponse", text })
+	}
+
+	/**
+	 * Implicit approval via legacy message command.
+	 * Returns true if the message was consumed as an approval response.
+	 */
+	resolveAsMessage(text: string, images?: string[]): boolean {
+		if (!this.pending) return false
+
+		const { resolve, request } = this.pending
+		this.pending = null
+
+		if (request.kind === "respond") {
+			resolve({ response: "messageResponse", text, images })
+		} else {
+			// For non-respond asks, a message acts as approval
+			resolve({ response: "yesButtonClicked" })
+		}
+
+		return true
+	}
+
+	/**
+	 * Reject any pending approval request. Called on cancellation or cleanup.
+	 */
+	dispose(): void {
+		if (!this.pending) return
+		const { reject } = this.pending
+		this.pending = null
+		reject(new Error("stdin-stream approval adapter disposed"))
+	}
+
+	// =========================================================================
+	// Event emission
+	// =========================================================================
+
+	private emitApprovalRequest(request: ApprovalRequest): void {
+		this.emitter.emitRawEvent({
+			type: "control",
+			subtype: "approval_request",
+			taskId: this.taskIdProvider(),
+			content: summarizeApprovalRequest(request),
+			code: request.ask,
+			command: mapKindToCommand(request.kind),
+		})
+	}
+
+	private emitApprovalDone(requestId: string, command: RooCliCommandName, code: string): void {
+		this.emitter.emitRawEvent({
+			type: "control",
+			subtype: "done",
+			requestId,
+			command,
+			taskId: this.taskIdProvider(),
+			content: `approval ${code}`,
+			code,
+			success: true,
+			done: true,
+		})
+	}
+
+	private emitNoApprovalPending(requestId: string, command: RooCliCommandName): void {
+		this.emitter.emitRawEvent({
+			type: "control",
+			subtype: "error",
+			requestId,
+			command,
+			taskId: this.taskIdProvider(),
+			content: "no approval request pending",
+			code: "no_pending_approval",
+			success: false,
+		})
+	}
+}
+
+/**
+ * Map ApprovalRequestKind to the expected stdin command name.
+ */
+function mapKindToCommand(kind: ApprovalRequestKind): RooCliCommandName {
+	switch (kind) {
+		case "approve":
+			return "approve"
+		case "respond":
+			return "respond"
+		case "retry":
+		case "continue":
+		case "acknowledge":
+			return "approve"
+	}
+}
+
+/**
+ * Human-readable summary of the approval request for the content field.
+ */
+function summarizeApprovalRequest(request: ApprovalRequest): string {
+	const ask = request.ask as ClineAsk
+	const text = request.message.text || ""
+
+	switch (ask) {
+		case "command":
+			return `approve command: ${text.slice(0, 200)}`
+		case "tool": {
+			try {
+				const info = JSON.parse(text)
+				return `approve tool: ${info.tool || "unknown"}`
+			} catch {
+				return "approve tool"
+			}
+		}
+		case "use_mcp_server": {
+			try {
+				const info = JSON.parse(text)
+				return `approve MCP: ${info.server_name || "unknown"}`
+			} catch {
+				return "approve MCP server"
+			}
+		}
+		case "followup":
+			return `respond to question`
+		case "api_req_failed":
+			return `retry failed API request`
+		default:
+			return `approve: ${ask}`
+	}
+}

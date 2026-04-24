@@ -1,14 +1,24 @@
 import { randomUUID } from "crypto"
 
-import type { RooCliStartCommand, RooCliMessageCommand, RooCliCancelCommand } from "@roo-code/types"
+import type {
+	ClineAsk,
+	ClineMessage,
+	RooCliStartCommand,
+	RooCliMessageCommand,
+	RooCliCancelCommand,
+	RooCliApproveCommand,
+	RooCliRejectCommand,
+	RooCliRespondCommand,
+} from "@roo-code/types"
 
 import type { JsonEventEmitter } from "@/agent/json-event-emitter.js"
 import type { TaskCompletedEvent } from "@/agent/events.js"
 import type { CliSessionController } from "@/runtime/index.js"
 import { isRecord } from "@/lib/utils/guards.js"
 
-import { shouldRouteAsAskResponse } from "@/agent/approval-adapter.js"
+import { classifyAsk, shouldRouteAsAskResponse, sendApprovalResponse } from "@/agent/approval-adapter.js"
 
+import { StdinStreamApprovalAdapter } from "./stdin-stream-approval-adapter.js"
 import { isCancellationLikeError, isExpectedControlFlowError, isNoActiveTaskLikeError } from "./cancellation.js"
 
 const RESUME_ASKS = new Set(["resume_task", "resume_completed_task"])
@@ -114,7 +124,15 @@ export class StdinStreamSession {
 	private readonly pendingQueuedMessageRequestIds: string[] = []
 	private readonly queueMessageRequestIdByMessageId = new Map<string, string>()
 
-	constructor(private readonly options: StdinStreamSessionOptions) {}
+	/** Active approval adapter for explicit approve/reject/respond commands. */
+	readonly approvalAdapter: StdinStreamApprovalAdapter
+
+	/** Last known ask type — used to detect ask transitions in state messages. */
+	private lastKnownAsk: ClineAsk | undefined
+
+	constructor(private readonly options: StdinStreamSessionOptions) {
+		this.approvalAdapter = new StdinStreamApprovalAdapter(options.jsonEmitter, () => this.latestTaskId)
+	}
 
 	getLatestTaskId(): string | undefined {
 		return this.latestTaskId
@@ -222,6 +240,9 @@ export class StdinStreamSession {
 		if (typeof currentTaskId === "string" && currentTaskId.trim().length > 0) {
 			this.latestTaskId = currentTaskId
 		}
+
+		// Detect ask transitions — emit approval_request when a new ask arrives
+		this.detectAskTransition()
 
 		const queueSnapshot = parseQueueSnapshot(message.state?.messageQueue)
 		if (!queueSnapshot) {
@@ -453,14 +474,22 @@ export class StdinStreamSession {
 		})
 
 		if (shouldSendAsResponse) {
-			this.options.sessionController.sendTaskMessage(stdinCommand.prompt, stdinCommand.images)
+			// Try implicit resolution via the approval adapter (backward compat).
+			// If the adapter has a pending ask, the message resolves it.
+			// Otherwise, fall back to direct sendTaskMessage (legacy path).
+			const consumed = this.approvalAdapter.resolveAsMessage(stdinCommand.prompt, stdinCommand.images)
+
+			if (!consumed) {
+				this.options.sessionController.sendTaskMessage(stdinCommand.prompt, stdinCommand.images)
+			}
+
 			this.options.setStreamRequestId(stdinCommand.requestId)
 			this.options.jsonEmitter.emitControl({
 				subtype: "done",
 				requestId: stdinCommand.requestId,
 				command: "message",
 				taskId: this.latestTaskId,
-				content: "message sent to current ask",
+				content: consumed ? "message resolved pending approval" : "message sent to current ask",
 				code: "responded",
 				success: true,
 			})
@@ -489,6 +518,10 @@ export class StdinStreamSession {
 
 	handleCancelCommand(stdinCommand: RooCliCancelCommand): void {
 		this.options.setStreamRequestId(stdinCommand.requestId)
+
+		// Dispose the approval adapter (rejects any pending ask promise)
+		this.approvalAdapter.dispose()
+		this.lastKnownAsk = undefined
 
 		const hasTaskInFlight = Boolean(
 			this.activeTaskPromise ||
@@ -601,6 +634,75 @@ export class StdinStreamSession {
 				await this.waitForTaskProgressAfterStdinClosed()
 			}
 		}
+	}
+
+	// =========================================================================
+	// Explicit approval commands
+	// =========================================================================
+
+	handleApproveCommand(stdinCommand: RooCliApproveCommand): void {
+		this.approvalAdapter.approve(stdinCommand.requestId)
+	}
+
+	handleRejectCommand(stdinCommand: RooCliRejectCommand): void {
+		this.approvalAdapter.reject(stdinCommand.requestId)
+	}
+
+	handleRespondCommand(stdinCommand: RooCliRespondCommand): void {
+		this.approvalAdapter.respond(stdinCommand.requestId, stdinCommand.text)
+	}
+
+	// =========================================================================
+	// Ask transition detection
+	// =========================================================================
+
+	/**
+	 * Check if the session controller transitioned to a new ask state.
+	 * If so, classify the ask and push it into the approval adapter.
+	 * The adapter emits an approval_request event and waits for a response.
+	 */
+	private detectAskTransition(): void {
+		const isWaiting = this.options.sessionController.isWaitingForInput()
+		const currentAsk = this.options.sessionController.getCurrentAsk()
+
+		if (!isWaiting || !currentAsk) {
+			this.lastKnownAsk = undefined
+			return
+		}
+
+		// Only act on NEW asks (not repeated state updates for the same ask)
+		if (currentAsk === this.lastKnownAsk) {
+			return
+		}
+
+		this.lastKnownAsk = currentAsk
+
+		// Skip asks that don't need user input (non-blocking, auto-continued)
+		const clineMsg = { type: "ask" as const, ask: currentAsk, text: "", ts: Date.now() } as ClineMessage
+		const request = classifyAsk(currentAsk, clineMsg)
+
+		if (!request) {
+			return
+		}
+
+		// Push into the approval adapter — emits approval_request event
+		// and waits for explicit approve/reject/respond or implicit message.
+		// The response is dispatched to the session controller.
+		this.approvalAdapter.handle(request).then(
+			(response) => {
+				sendApprovalResponse(
+					{
+						approve: () => this.options.sessionController.approve(),
+						reject: () => this.options.sessionController.reject(),
+						sendTaskMessage: (text, images) => this.options.sessionController.sendTaskMessage(text, images),
+					},
+					response,
+				)
+			},
+			() => {
+				// Disposed/cancelled — no response needed
+			},
+		)
 	}
 
 	private isResumableState(): boolean {

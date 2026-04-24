@@ -5,6 +5,7 @@ import {
 	type RooCliCommandName,
 	type RooCliInputCommand,
 	type RooCliStartCommand,
+	type RooCliRespondCommand,
 } from "@roo-code/types"
 
 import { isRecord } from "@/lib/utils/guards.js"
@@ -51,7 +52,7 @@ export function parseStdinStreamCommand(line: string, lineNumber: number): Stdin
 
 	if (!VALID_STDIN_COMMANDS.has(commandRaw as StdinStreamCommandName)) {
 		throw new Error(
-			`stdin command line ${lineNumber}: unsupported command "${commandRaw}" (expected start|message|cancel|ping|shutdown)`,
+			`stdin command line ${lineNumber}: unsupported command "${commandRaw}" (expected ${rooCliCommandNames.join("|")})`,
 		)
 	}
 
@@ -61,6 +62,17 @@ export function parseStdinStreamCommand(line: string, lineNumber: number): Stdin
 
 	const command = commandRaw as StdinStreamCommandName
 	const requestId = requestIdRaw.trim()
+
+	// respond command requires a text field
+	if (command === "respond") {
+		const textRaw = parsed.text
+
+		if (typeof textRaw !== "string") {
+			throw new Error(`stdin command line ${lineNumber}: "respond" requires string "text"`)
+		}
+
+		return { command, requestId, text: textRaw } as RooCliRespondCommand
+	}
 
 	if (command === "start" || command === "message") {
 		const promptRaw = parsed.prompt
@@ -230,6 +242,18 @@ export async function runStdinStreamMode({
 						code: "pong",
 						success: true,
 					})
+					break
+
+				case "approve":
+					streamSession.handleApproveCommand(stdinCommand)
+					break
+
+				case "reject":
+					streamSession.handleRejectCommand(stdinCommand)
+					break
+
+				case "respond":
+					streamSession.handleRespondCommand(stdinCommand)
 					break
 
 				case "shutdown":

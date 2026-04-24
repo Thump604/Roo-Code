@@ -137,6 +137,10 @@ export class JsonEventEmitter {
 			"stdin:cancel",
 			"stdin:ping",
 			"stdin:shutdown",
+			"stdin:approve",
+			"stdin:reject",
+			"stdin:respond",
+			"approval_request",
 		]
 	}
 
@@ -200,6 +204,14 @@ export class JsonEventEmitter {
 			queueDepth: event.queueDepth,
 			queue: event.queue,
 		})
+	}
+
+	/**
+	 * Emit a raw event with arbitrary fields.
+	 * Used by approval adapters and other consumers that need custom event shapes.
+	 */
+	emitRawEvent(event: JsonEvent): void {
+		this.emitEvent(event)
 	}
 
 	/**
