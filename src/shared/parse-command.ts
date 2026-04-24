@@ -18,9 +18,9 @@ export function parseCommand(command: string): string[] {
 		return []
 	}
 
-	// Split by newlines first (handle different line ending formats)
-	// This regex splits on \r\n (Windows), \n (Unix), or \r (old Mac)
-	const lines = command.split(/\r\n|\r|\n/)
+	// Split on newlines that are NOT inside quotes.
+	// This preserves multiline quoted strings (e.g., git commit -m "line\nline").
+	const lines = splitOnUnquotedNewlines(command)
 	const allCommands: string[] = []
 
 	for (const line of lines) {
@@ -35,6 +35,69 @@ export function parseCommand(command: string): string[] {
 	}
 
 	return allCommands
+}
+
+/**
+ * Split a command string on newlines, but NOT when the newline is inside
+ * a single-quoted or double-quoted string. Handles backslash escapes in
+ * double-quoted strings (single-quoted strings are literal in shell).
+ */
+function splitOnUnquotedNewlines(command: string): string[] {
+	const lines: string[] = []
+	let current = ""
+	let inSingle = false
+	let inDouble = false
+	let escaped = false
+
+	for (let i = 0; i < command.length; i++) {
+		const ch = command[i]
+
+		if (escaped) {
+			current += ch
+			escaped = false
+			continue
+		}
+
+		// Backslash escaping only inside double quotes or unquoted context
+		if (ch === "\\" && !inSingle) {
+			current += ch
+			escaped = true
+			continue
+		}
+
+		if (ch === "'" && !inDouble) {
+			inSingle = !inSingle
+			current += ch
+			continue
+		}
+
+		if (ch === '"' && !inSingle) {
+			inDouble = !inDouble
+			current += ch
+			continue
+		}
+
+		// Newline outside quotes — split here
+		if ((ch === "\n" || ch === "\r") && !inSingle && !inDouble) {
+			// Handle \r\n as a single line ending
+			if (ch === "\r" && i + 1 < command.length && command[i + 1] === "\n") {
+				i++ // skip the \n
+			}
+			if (current.trim()) {
+				lines.push(current)
+			}
+			current = ""
+			continue
+		}
+
+		current += ch
+	}
+
+	if (current.trim()) {
+		lines.push(current)
+	}
+
+	return lines
 }
 
 /**
