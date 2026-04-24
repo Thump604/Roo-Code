@@ -392,6 +392,74 @@ describe("BaseOpenAiCompatibleProvider", () => {
 			expect(firstChunk.done).toBe(false)
 			expect(firstChunk.value).toMatchObject({ type: "usage", inputTokens: 100, outputTokens: 50 })
 		})
+
+		it("text content arrives before usage for normal content", async () => {
+			mockCreate.mockImplementationOnce(() => {
+				return {
+					[Symbol.asyncIterator]: () => ({
+						next: vi
+							.fn()
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { content: "Hello" } }] },
+							})
+							.mockResolvedValueOnce({
+								done: false,
+								value: {
+									choices: [{ delta: {} }],
+									usage: { prompt_tokens: 10, completion_tokens: 5 },
+								},
+							})
+							.mockResolvedValueOnce({ done: true }),
+					}),
+				}
+			})
+
+			const stream = handler.createMessage("system prompt", [])
+			const chunks = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			// Text must come before usage — never usage before delayed text
+			const textIndex = chunks.findIndex((c) => c.type === "text")
+			const usageIndex = chunks.findIndex((c) => c.type === "usage")
+			expect(textIndex).toBeGreaterThanOrEqual(0)
+			expect(usageIndex).toBeGreaterThan(textIndex)
+		})
+
+		it("dedicated reasoning_content emits reasoning chunks separately from text", async () => {
+			mockCreate.mockImplementationOnce(() => {
+				return {
+					[Symbol.asyncIterator]: () => ({
+						next: vi
+							.fn()
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { reasoning_content: "Step 1" } }] },
+							})
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { content: "Answer" } }] },
+							})
+							.mockResolvedValueOnce({ done: true }),
+					}),
+				}
+			})
+
+			const stream = handler.createMessage("system prompt", [])
+			const chunks = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			const reasoningChunks = chunks.filter((c) => c.type === "reasoning")
+			const textChunks = chunks.filter((c) => c.type === "text")
+			expect(reasoningChunks.length).toBeGreaterThanOrEqual(1)
+			expect(textChunks.length).toBeGreaterThanOrEqual(1)
+			expect(reasoningChunks[0]).toMatchObject({ type: "reasoning", text: "Step 1" })
+			expect(textChunks[0]).toMatchObject({ type: "text", text: "Answer" })
+		})
 	})
 
 	describe("Tool call handling", () => {

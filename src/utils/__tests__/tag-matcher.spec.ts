@@ -282,6 +282,48 @@ describe("TagMatcher — no false positives", () => {
 		expect(visibleText(results)).toContain("<div>")
 		expect(matchedText(results)).toBe("")
 	})
+
+	it("malformed non-target tags stream as visible text from update() without waiting for final()", () => {
+		const matcher = new TagMatcher("think")
+
+		// <div> is not the target tag — should stream immediately
+		const r1 = matcher.update("<div>content</div>")
+		const visible = r1
+			.filter((r) => !r.matched)
+			.map((r) => r.data)
+			.join("")
+		expect(visible).toContain("<div>")
+		expect(visible).toContain("content")
+		expect(visible).toContain("</div>")
+
+		// final() should have nothing left to flush
+		const fin = matcher.final()
+		expect(fin).toEqual([])
+	})
+
+	it("non-target tag resolves immediately without holding content", () => {
+		const matcher = new TagMatcher("think")
+
+		// "<di" does not match "think" — tag mismatch detected at first char,
+		// so the speculative buffer is flushed as visible within the same update()
+		const r1 = matcher.update("hello<di")
+		const visible = r1
+			.filter((r) => !r.matched)
+			.map((r) => r.data)
+			.join("")
+		expect(visible).toBe("hello<di")
+
+		// Rest streams normally
+		const r2 = matcher.update("v>inside</div>after")
+		const visible2 = r2
+			.filter((r) => !r.matched)
+			.map((r) => r.data)
+			.join("")
+		expect(visible2).toContain("v>inside")
+		expect(visible2).toContain("after")
+
+		expect(matcher.final()).toEqual([])
+	})
 })
 
 // =============================================================================
@@ -299,6 +341,28 @@ describe("TagMatcher — thought tag", () => {
 		const results = run("thought", "before<thou", "ght>inner</thought>after")
 		expect(matchedText(results)).toBe("inner")
 		expect(visibleText(results)).toBe("beforeafter")
+	})
+
+	/**
+	 * DEFERRED: <thought> tag extraction via the reasoning stream processor.
+	 *
+	 * TagMatcher supports <thought> when instantiated with tagName="thought".
+	 * However, the createReasoningProcessor() in reasoning-stream.ts currently
+	 * only instantiates TagMatcher with tagName="think". Adding <thought>
+	 * support requires either:
+	 * - A second TagMatcher instance chained in processContent()
+	 * - A multi-tag TagMatcher variant
+	 *
+	 * This test documents current behavior: when a "think" matcher encounters
+	 * <thought>, it passes through as visible text (no extraction).
+	 */
+	it("<thought> with a 'think' matcher passes through as visible text (current behavior)", () => {
+		const results = run("think", "prefix<thought>hidden</thought>suffix")
+		const visible = visibleText(results)
+		expect(visible).toContain("<thought>")
+		expect(visible).toContain("hidden")
+		expect(visible).toContain("</thought>")
+		expect(matchedText(results)).toBe("")
 	})
 })
 
