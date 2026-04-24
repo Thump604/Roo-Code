@@ -583,9 +583,9 @@ describe("FireworksHandler", () => {
 			chunks.push(chunk)
 		}
 
-		// Usage is emitted after the stream loop; text is flushed by the
-		// reasoning processor's final() call which runs after usage.
-		expect(chunks[0]).toMatchObject({ type: "usage", inputTokens: 5, outputTokens: 10 })
-		expect(chunks[1]).toEqual({ type: "text", text: "Hello world" })
+		// Text chunks stream immediately; usage follows after the stream loop.
+		expect(chunks[0]).toEqual({ type: "text", text: "Hello" })
+		expect(chunks[1]).toEqual({ type: "text", text: " world" })
+		expect(chunks[2]).toMatchObject({ type: "usage", inputTokens: 5, outputTokens: 10 })
 	})
 })

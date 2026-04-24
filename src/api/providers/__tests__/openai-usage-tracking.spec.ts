@@ -123,11 +123,10 @@ describe("OpenAiHandler with usage tracking fix", () => {
 				chunks.push(chunk)
 			}
 
-			// The reasoning processor's TagMatcher buffers text and flushes
-			// it as a single merged chunk in final().
+			// Text chunks stream immediately per update() call.
 			const textChunks = chunks.filter((chunk) => chunk.type === "text")
-			expect(textChunks).toHaveLength(1)
-			expect(textChunks[0].text).toBe("Test response")
+			expect(textChunks.length).toBeGreaterThanOrEqual(1)
+			expect(textChunks.map((c) => c.text).join("")).toBe("Test response")
 
 			// Check we only have one usage chunk and it's the last one
 			const usageChunks = chunks.filter((chunk) => chunk.type === "usage")

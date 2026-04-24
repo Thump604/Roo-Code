@@ -126,6 +126,12 @@ export class TagMatcher<Result = TagMatcherResult> {
 				}
 			}
 		}
+
+		// Flush definitive TEXT-state content so update() emits it immediately.
+		// Only speculative buffers (TAG_OPEN/TAG_CLOSE) stay cached.
+		if (this.state === "TEXT") {
+			this.collect()
+		}
 	}
 
 	/**

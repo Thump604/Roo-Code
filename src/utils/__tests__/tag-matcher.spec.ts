@@ -43,6 +43,78 @@ function matchedText(results: TagMatcherResult[]): string {
 }
 
 // =============================================================================
+// Streaming: update() must emit ordinary text immediately
+// =============================================================================
+
+describe("TagMatcher — update() streams ordinary text immediately", () => {
+	it("update('hello') returns text chunk without needing final()", () => {
+		const matcher = new TagMatcher("think")
+		const results = matcher.update("hello")
+		expect(results).toEqual([{ data: "hello", matched: false }])
+	})
+
+	it("multiple update() calls each return their text immediately", () => {
+		const matcher = new TagMatcher("think")
+		const r1 = matcher.update("first ")
+		const r2 = matcher.update("second")
+		expect(r1).toEqual([{ data: "first ", matched: false }])
+		expect(r2).toEqual([{ data: "second", matched: false }])
+	})
+
+	it("update() returns text before a tag starts", () => {
+		const matcher = new TagMatcher("think")
+		const results = matcher.update("visible<think>hidden")
+		// "visible" is flushed before speculative parse; "hidden" is in matched state
+		expect(results.length).toBeGreaterThanOrEqual(1)
+		expect(results[0]).toEqual({ data: "visible", matched: false })
+	})
+
+	it("update() returns matched text inside tags", () => {
+		const matcher = new TagMatcher("think")
+		const r1 = matcher.update("<think>reasoning content")
+		// The tag is open, content is matched and flushed
+		expect(r1).toEqual([{ data: "reasoning content", matched: true }])
+	})
+
+	it("text after closing tag is emitted by update()", () => {
+		const matcher = new TagMatcher("think")
+		const results = matcher.update("<think>hidden</think>visible")
+		const visible = results
+			.filter((r) => !r.matched)
+			.map((r) => r.data)
+			.join("")
+		expect(visible).toBe("visible")
+	})
+
+	it("final() returns nothing when update() already emitted everything", () => {
+		const matcher = new TagMatcher("think")
+		matcher.update("hello world")
+		const finalResults = matcher.final()
+		expect(finalResults).toEqual([])
+	})
+
+	it("speculative tag prefix stays buffered until resolved", () => {
+		const matcher = new TagMatcher("think")
+		const r1 = matcher.update("text<thi")
+		// "text" is flushed, "<thi" is speculative (TAG_OPEN state)
+		expect(r1).toEqual([{ data: "text", matched: false }])
+
+		// Resolve the tag
+		const r2 = matcher.update("nk>content</think>after")
+		const matched = r2
+			.filter((r) => r.matched)
+			.map((r) => r.data)
+			.join("")
+		const visible = r2
+			.filter((r) => !r.matched)
+			.map((r) => r.data)
+			.join("")
+		expect(matched).toBe("content")
+		expect(visible).toBe("after")
+	})
+})
+
+// =============================================================================
 // Complete tag in one chunk
 // =============================================================================
 
