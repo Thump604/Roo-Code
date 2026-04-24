@@ -493,11 +493,73 @@ def case_json_output_parseable(context: SmokeContext) -> None:
         )
 
 
+def case_stdin_stream_init_and_ack(context: SmokeContext) -> None:
+    """Verify stdin-stream mode emits system:init and acks start command."""
+    start_request_id = f"init-ack-{int(time.time() * 1000)}"
+    shutdown_request_id = f"init-ack-shutdown-{int(time.time() * 1000)}"
+
+    with StreamSession(context, "stdin-stream-init-and-ack") as session:
+        events = session.read_events(10.0)
+
+        init_events = [e for e in events if e.get("type") == "system" and e.get("subtype") == "init"]
+        if not init_events:
+            raise SmokeFailure(session.failure_message("did not observe system:init event"))
+
+        # Send start command and verify ack
+        session.send_command({
+            "command": "start",
+            "requestId": start_request_id,
+            "prompt": "Reply with HELLO",
+        })
+
+        events = session.read_events(5.0)
+        ack_events = [
+            e for e in events
+            if e.get("type") == "control"
+            and e.get("subtype") == "ack"
+            and e.get("requestId") == start_request_id
+        ]
+        if not ack_events:
+            raise SmokeFailure(session.failure_message("did not observe ack for start command"))
+
+        # Shutdown
+        session.send_command({"command": "shutdown", "requestId": shutdown_request_id})
+        session.read_events(3.0)
+
+
+def case_stdin_stream_wrong_approval_id(context: SmokeContext) -> None:
+    """Verify that sending approve with a wrong approvalId emits approval_id_mismatch.
+
+    SKIP: This test requires live inference to generate a tool call that
+    triggers an approval_request. The deterministic fake/session controller
+    path is not available in the non-interactive smoke harness.
+    """
+    raise SmokeFailure(
+        "SKIPPED: approval-path smoke requires live inference to trigger tool "
+        "calls. Use vitest unit tests for deterministic approval protocol coverage."
+    )
+
+
+def case_stdin_stream_cancel_no_partial(context: SmokeContext) -> None:
+    """Verify that cancel during active task does not persist partial output.
+
+    SKIP: Requires live inference and a long-running task to meaningfully
+    test cancellation timing.
+    """
+    raise SmokeFailure(
+        "SKIPPED: cancel-no-partial smoke requires a long-running task from "
+        "live inference. Use vitest unit tests for deterministic coverage."
+    )
+
+
 CASES = {
     "streaming-baseline-live": case_streaming_baseline_live,
     "print-live": case_print_live,
     "stdin-stream-live": case_stdin_stream_live,
     "json-output-parseable": case_json_output_parseable,
+    "stdin-stream-init-and-ack": case_stdin_stream_init_and_ack,
+    "stdin-stream-wrong-approval-id": case_stdin_stream_wrong_approval_id,
+    "stdin-stream-cancel-no-partial": case_stdin_stream_cancel_no_partial,
 }
 
 
