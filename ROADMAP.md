@@ -74,12 +74,13 @@ Implemented:
 - local task index with CRUD, pinning, and corrupted-index recovery
 - caller-provided safe summary (raw prompts never persisted)
 - index auto-trimming with pinned entries surviving
-- task index wired into CLI session lifecycle: onStart records running
-  tasks, onTaskCompleted updates status to completed/failed
+- task index wired into CLI session lifecycle: runner records start,
+  onTaskCompleted updates status to completed/failed
+- CLI commands: mesa tasks list/show/pin/unpin/remove with JSON and text
+  output formats
 
 In progress:
 
-- CLI commands for task index (mesa tasks list/show/pin/unpin)
 - recent-task dashboard across terminal sessions
 - task pinning for important long-running work
 - task forking for alternate implementation paths
