@@ -375,24 +375,37 @@ export class UseMcpToolTool extends BaseTool<"use_mcp_tool"> {
 			return { preview: text, truncated: false }
 		}
 
-		// Persist full output to disk
+		// Persist full output to disk — only truncate if persistence succeeds.
+		// If there's no storage path or the write fails, return the full text
+		// rather than advertising an artifact that doesn't exist.
 		const artifactId = `mcp-${executionId}.txt`
 		const globalStoragePath = task.providerRef.deref()?.context?.globalStorageUri?.fsPath
 
-		if (globalStoragePath) {
-			try {
-				const taskDir = await getTaskDirectoryPath(globalStoragePath, task.taskId)
-				const storageDir = path.join(taskDir, "command-output")
-				await fs.mkdir(storageDir, { recursive: true })
-				await fs.writeFile(path.join(storageDir, artifactId), text, "utf-8")
-			} catch {
-				// If persistence fails, return full text rather than losing data
-				return { preview: text, truncated: false }
-			}
+		if (!globalStoragePath) {
+			return { preview: text, truncated: false }
 		}
 
-		// Build bounded preview: first N bytes + truncation marker
-		const previewText = text.slice(0, threshold)
+		try {
+			const taskDir = await getTaskDirectoryPath(globalStoragePath, task.taskId)
+			const storageDir = path.join(taskDir, "command-output")
+			await fs.mkdir(storageDir, { recursive: true })
+			await fs.writeFile(path.join(storageDir, artifactId), text, "utf-8")
+		} catch {
+			return { preview: text, truncated: false }
+		}
+
+		// Build byte-safe preview: encode to UTF-8 bytes, slice to threshold,
+		// then decode back. This respects the byte budget regardless of
+		// character width (CJK, emoji, etc.).
+		const fullBuffer = Buffer.from(text, "utf-8")
+		const previewBuffer = fullBuffer.subarray(0, threshold)
+		// Decode may produce a replacement character at the end if we sliced
+		// mid-codepoint. Trim the last char if it's U+FFFD (replacement).
+		let previewText = previewBuffer.toString("utf-8")
+		if (previewText.endsWith("\uFFFD")) {
+			previewText = previewText.slice(0, -1)
+		}
+
 		const marker = `\n\n[Truncated: ${textBytes} bytes total. Use read_command_output with artifact_id="${artifactId}" to read the full output.]`
 		return { preview: previewText + marker, truncated: true }
 	}
