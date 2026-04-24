@@ -176,14 +176,14 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 
 			let stream
 			try {
-				const sdkOptions = {
+				const sdkOptions: OpenAI.RequestOptions = {
 					...(isAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {}),
 					...(metadata?.signal ? { signal: metadata.signal } : {}),
 				}
-				stream = await this.client.chat.completions.create(
-					requestOptions,
-					Object.keys(sdkOptions).length > 0 ? sdkOptions : undefined,
-				)
+				stream =
+					Object.keys(sdkOptions).length > 0
+						? await this.client.chat.completions.create(requestOptions, sdkOptions)
+						: await this.client.chat.completions.create(requestOptions)
 			} catch (error) {
 				throw handleOpenAIError(error, this.providerName)
 			}
@@ -368,14 +368,14 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 
 			let stream
 			try {
-				const sdkOptions = {
+				const sdkOptions: OpenAI.RequestOptions = {
 					...(methodIsAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {}),
 					...(metadata?.signal ? { signal: metadata.signal } : {}),
 				}
-				stream = await this.client.chat.completions.create(
-					requestOptions,
-					Object.keys(sdkOptions).length > 0 ? sdkOptions : undefined,
-				)
+				stream =
+					Object.keys(sdkOptions).length > 0
+						? await this.client.chat.completions.create(requestOptions, sdkOptions)
+						: await this.client.chat.completions.create(requestOptions)
 			} catch (error) {
 				throw handleOpenAIError(error, this.providerName)
 			}

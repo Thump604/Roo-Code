@@ -444,7 +444,6 @@ describe("FireworksHandler", () => {
 				stream: true,
 				stream_options: { include_usage: true },
 			}),
-			undefined,
 		)
 	})
 
@@ -470,7 +469,6 @@ describe("FireworksHandler", () => {
 			expect.objectContaining({
 				temperature: 0.5,
 			}),
-			undefined,
 		)
 	})
 
@@ -497,7 +495,6 @@ describe("FireworksHandler", () => {
 			expect.objectContaining({
 				temperature: 1.0,
 			}),
-			undefined,
 		)
 	})
 
@@ -525,7 +522,6 @@ describe("FireworksHandler", () => {
 			expect.objectContaining({
 				temperature: 0.7,
 			}),
-			undefined,
 		)
 	})
 
@@ -587,8 +583,9 @@ describe("FireworksHandler", () => {
 			chunks.push(chunk)
 		}
 
-		expect(chunks[0]).toEqual({ type: "text", text: "Hello" })
-		expect(chunks[1]).toEqual({ type: "text", text: " world" })
-		expect(chunks[2]).toMatchObject({ type: "usage", inputTokens: 5, outputTokens: 10 })
+		// Usage is emitted after the stream loop; text is flushed by the
+		// reasoning processor's final() call which runs after usage.
+		expect(chunks[0]).toMatchObject({ type: "usage", inputTokens: 5, outputTokens: 10 })
+		expect(chunks[1]).toEqual({ type: "text", text: "Hello world" })
 	})
 })

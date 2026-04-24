@@ -399,7 +399,6 @@ describe("ZAiHandler", () => {
 					stream: true,
 					stream_options: { include_usage: true },
 				}),
-				undefined,
 			)
 		})
 	})
@@ -427,11 +426,13 @@ describe("ZAiHandler", () => {
 			await messageGenerator.next()
 
 			// For GLM-4.7 with default reasoning (medium), thinking should be enabled
+			// createStreamWithThinking always passes requestOptions as the 2nd arg
 			expect(mockCreate).toHaveBeenCalledWith(
 				expect.objectContaining({
 					model: "glm-4.7",
 					thinking: { type: "enabled" },
 				}),
+				undefined,
 			)
 		})
 
@@ -458,11 +459,13 @@ describe("ZAiHandler", () => {
 			await messageGenerator.next()
 
 			// For GLM-4.7 with reasoning disabled, thinking should be disabled
+			// createStreamWithThinking always passes requestOptions as the 2nd arg
 			expect(mockCreate).toHaveBeenCalledWith(
 				expect.objectContaining({
 					model: "glm-4.7",
 					thinking: { type: "disabled" },
 				}),
+				undefined,
 			)
 		})
 
@@ -489,11 +492,13 @@ describe("ZAiHandler", () => {
 			await messageGenerator.next()
 
 			// For GLM-4.7 with reasoning set to medium, thinking should be enabled
+			// createStreamWithThinking always passes requestOptions as the 2nd arg
 			expect(mockCreate).toHaveBeenCalledWith(
 				expect.objectContaining({
 					model: "glm-4.7",
 					thinking: { type: "enabled" },
 				}),
+				undefined,
 			)
 		})
 

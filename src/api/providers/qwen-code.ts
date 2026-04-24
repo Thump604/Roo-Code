@@ -238,7 +238,9 @@ export class QwenCodeHandler extends BaseProvider implements SingleCompletionHan
 		}
 
 		const stream = await this.callApiWithRetry(() =>
-			client.chat.completions.create(requestOptions, metadata?.signal ? { signal: metadata.signal } : undefined),
+			metadata?.signal
+				? client.chat.completions.create(requestOptions, { signal: metadata.signal })
+				: client.chat.completions.create(requestOptions),
 		)
 
 		let fullContent = ""

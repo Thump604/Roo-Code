@@ -111,7 +111,9 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 		}
 
 		try {
-			return this.client.chat.completions.create(params, requestOptions)
+			return requestOptions
+				? this.client.chat.completions.create(params, requestOptions)
+				: this.client.chat.completions.create(params)
 		} catch (error) {
 			throw handleOpenAIError(error, this.providerName)
 		}

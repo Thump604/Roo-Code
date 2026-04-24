@@ -743,7 +743,6 @@ describe("OpenAiHandler", () => {
 					model: grokOptions.openAiModelId,
 					stream: true,
 				}),
-				{},
 			)
 
 			const mockCalls = mockCreate.mock.calls
@@ -802,7 +801,6 @@ describe("OpenAiHandler", () => {
 					// O3 models do not support deprecated max_tokens but do support max_completion_tokens
 					max_completion_tokens: 32000,
 				}),
-				{},
 			)
 		})
 
@@ -959,7 +957,6 @@ describe("OpenAiHandler", () => {
 					reasoning_effort: "medium",
 					temperature: undefined,
 				}),
-				{},
 			)
 
 			// Verify max_tokens is NOT included
@@ -1080,7 +1077,6 @@ describe("OpenAiHandler", () => {
 				expect.objectContaining({
 					temperature: undefined, // Temperature is not supported for O3 models
 				}),
-				{},
 			)
 		})
 

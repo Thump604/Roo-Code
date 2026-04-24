@@ -66,10 +66,9 @@ export class VercelAiGatewayHandler extends RouterProvider implements SingleComp
 			parallel_tool_calls: metadata?.parallelToolCalls ?? true,
 		}
 
-		const completion = await this.client.chat.completions.create(
-			body,
-			metadata?.signal ? { signal: metadata.signal } : undefined,
-		)
+		const completion = metadata?.signal
+			? await this.client.chat.completions.create(body, { signal: metadata.signal })
+			: await this.client.chat.completions.create(body)
 
 		for await (const chunk of completion) {
 			const delta = chunk.choices[0]?.delta

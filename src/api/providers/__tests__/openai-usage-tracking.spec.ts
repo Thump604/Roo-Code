@@ -123,11 +123,11 @@ describe("OpenAiHandler with usage tracking fix", () => {
 				chunks.push(chunk)
 			}
 
-			// Check we have text chunks
+			// The reasoning processor's TagMatcher buffers text and flushes
+			// it as a single merged chunk in final().
 			const textChunks = chunks.filter((chunk) => chunk.type === "text")
-			expect(textChunks).toHaveLength(2)
-			expect(textChunks[0].text).toBe("Test ")
-			expect(textChunks[1].text).toBe("response")
+			expect(textChunks).toHaveLength(1)
+			expect(textChunks[0].text).toBe("Test response")
 
 			// Check we only have one usage chunk and it's the last one
 			const usageChunks = chunks.filter((chunk) => chunk.type === "usage")

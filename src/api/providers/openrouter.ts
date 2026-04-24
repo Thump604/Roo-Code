@@ -341,10 +341,10 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 
 		let stream
 		try {
-			stream = await this.client.chat.completions.create(
-				completionParams,
-				Object.keys(requestOptions).length > 0 ? requestOptions : undefined,
-			)
+			stream =
+				Object.keys(requestOptions).length > 0
+					? await this.client.chat.completions.create(completionParams, requestOptions)
+					: await this.client.chat.completions.create(completionParams)
 		} catch (error) {
 			// Try to parse as OpenRouter error structure using Zod
 			const parseResult = OpenRouterErrorResponseSchema.safeParse(error)

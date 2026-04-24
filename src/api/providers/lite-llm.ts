@@ -223,9 +223,9 @@ export class LiteLLMHandler extends RouterProvider implements SingleCompletionHa
 		}
 
 		try {
-			const { data: completion } = await this.client.chat.completions
-				.create(requestOptions, metadata?.signal ? { signal: metadata.signal } : undefined)
-				.withResponse()
+			const { data: completion } = metadata?.signal
+				? await this.client.chat.completions.create(requestOptions, { signal: metadata.signal }).withResponse()
+				: await this.client.chat.completions.create(requestOptions).withResponse()
 
 			let lastUsage
 

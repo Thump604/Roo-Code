@@ -64,7 +64,6 @@ describe("OpenAiHandler native tools", () => {
 				]),
 				parallel_tool_calls: true,
 			}),
-			expect.anything(),
 		)
 	})
 
@@ -155,7 +154,6 @@ describe("OpenAiHandler native tools", () => {
 					}),
 				]),
 			}),
-			expect.anything(),
 		)
 	})
 })
