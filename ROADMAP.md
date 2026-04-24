@@ -72,11 +72,14 @@ autonomous and semi-autonomous coding work.
 Implemented:
 
 - local task index with CRUD, pinning, and corrupted-index recovery
-- prompt summary sanitization (no secrets, truncated)
+- caller-provided safe summary (raw prompts never persisted)
 - index auto-trimming with pinned entries surviving
+- task index wired into CLI session lifecycle: onStart records running
+  tasks, onTaskCompleted updates status to completed/failed
 
 In progress:
 
+- CLI commands for task index (mesa tasks list/show/pin/unpin)
 - recent-task dashboard across terminal sessions
 - task pinning for important long-running work
 - task forking for alternate implementation paths
@@ -101,13 +104,20 @@ Implemented:
 
 - hook type schema: task_start, task_end, before_tool, after_tool,
   before_model_request, after_model_response, approval_request
-- config discovery: .mesa/hooks.json preferred, .roo/hooks.json fallback
+- config discovery: .mesa/hooks.json preferred, .roo/hooks.json fallback;
+  unknown event names rejected at config load (typos fail closed)
 - hook runner: JSON event on stdin, JSON result on stdout, non-zero exit
   or timeout is fail-closed
 - before_tool can return allow/deny; deny blocks tool execution
 - command as argv array (not shell string) for safety
 - configurable timeoutMs (default 10s, max 60s)
-- before_tool and after_tool wired; remaining events documented as planned
+- HookManager wired into StdinStreamSession.detectAskTransition:
+  before_tool hooks run for tool/command/mcp asks, deny auto-rejects
+  and emits hook_denied control event
+- integration tests proving deny blocks, allow proceeds, no-hookManager
+  passthrough
+- limitation: hooks only intercept asks that reach the approval adapter;
+  auto-approved operations bypass hooks unless --require-approval is used
 
 In progress:
 
