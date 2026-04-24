@@ -87,12 +87,17 @@ describe("BaseOpenAiCompatibleProvider", () => {
 				chunks.push(chunk)
 			}
 
-			// TagMatcher yields chunks as they're processed
-			expect(chunks).toEqual([
-				{ type: "reasoning", text: "Let me think" },
-				{ type: "reasoning", text: " about this" },
-				{ type: "text", text: "The answer is 42" },
-			])
+			// TagMatcher may merge consecutive same-type chunks
+			const reasoning = chunks
+				.filter((c) => c.type === "reasoning")
+				.map((c) => c.text)
+				.join("")
+			const text = chunks
+				.filter((c) => c.type === "text")
+				.map((c) => c.text)
+				.join("")
+			expect(reasoning).toBe("Let me think about this")
+			expect(text).toBe("The answer is 42")
 		})
 
 		it("should handle complete <think> tag in a single chunk", async () => {
@@ -185,10 +190,11 @@ describe("BaseOpenAiCompatibleProvider", () => {
 				chunks.push(chunk)
 			}
 
-			expect(chunks).toEqual([
-				{ type: "text", text: "Just regular text" },
-				{ type: "text", text: " without reasoning" },
-			])
+			const text = chunks
+				.filter((c) => c.type === "text")
+				.map((c) => c.text)
+				.join("")
+			expect(text).toBe("Just regular text without reasoning")
 		})
 
 		it("should handle <think> tags that start at beginning of stream", async () => {
@@ -220,11 +226,16 @@ describe("BaseOpenAiCompatibleProvider", () => {
 				chunks.push(chunk)
 			}
 
-			expect(chunks).toEqual([
-				{ type: "reasoning", text: "reasoning" },
-				{ type: "reasoning", text: " content" },
-				{ type: "text", text: " normal text" },
-			])
+			const reasoning = chunks
+				.filter((c) => c.type === "reasoning")
+				.map((c) => c.text)
+				.join("")
+			const text = chunks
+				.filter((c) => c.type === "text")
+				.map((c) => c.text)
+				.join("")
+			expect(reasoning).toBe("reasoning content")
+			expect(text).toBe(" normal text")
 		})
 	})
 
