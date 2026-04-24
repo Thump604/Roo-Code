@@ -60,8 +60,9 @@ export class ZAiHandler extends BaseOpenAiCompatibleProvider<string> {
 			// We need to explicitly disable it when reasoning is off.
 			const useReasoning = shouldUseReasoningEffort({ model: info, settings: this.options })
 
-			// Create the stream with our custom thinking parameter
-			return this.createStreamWithThinking(systemPrompt, messages, metadata, useReasoning)
+			// Create the stream with our custom thinking parameter,
+			// forwarding requestOptions so abort signal propagates.
+			return this.createStreamWithThinking(systemPrompt, messages, metadata, useReasoning, requestOptions)
 		}
 
 		// For non-thinking models, use the default behavior
@@ -76,6 +77,7 @@ export class ZAiHandler extends BaseOpenAiCompatibleProvider<string> {
 		messages: Anthropic.Messages.MessageParam[],
 		metadata?: ApiHandlerCreateMessageMetadata,
 		useReasoning?: boolean,
+		requestOptions?: OpenAI.RequestOptions,
 	) {
 		const { id: model, info } = this.getModel()
 
@@ -106,6 +108,6 @@ export class ZAiHandler extends BaseOpenAiCompatibleProvider<string> {
 			parallel_tool_calls: metadata?.parallelToolCalls ?? true,
 		}
 
-		return this.client.chat.completions.create(params)
+		return this.client.chat.completions.create(params, requestOptions)
 	}
 }

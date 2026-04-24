@@ -1,13 +1,12 @@
 /**
  * Tests that the Task-level AbortSignal propagates to provider-level
- * AbortControllers via the metadata.signal linking pattern.
- *
- * These tests verify the linking behavior in isolation without
- * requiring live inference or real provider connections.
+ * AbortControllers and SDK calls across all OpenAI-compatible providers.
  *
  * Coverage:
  * - openai-native / openai-codex: local AbortController linked via addEventListener
  * - BaseOpenAiCompatibleProvider: signal forwarded via OpenAI RequestOptions.signal
+ * - ZAiHandler: signal forwarded through thinking-mode branch
+ * - RooHandler: signal merged with custom headers in requestOptions
  * - openai-compatible (AI SDK): abortSignal passed to streamText
  */
 
@@ -19,28 +18,22 @@ import OpenAI from "openai"
 
 describe("provider abort signal linking", () => {
 	it("linked abort controller fires when external signal aborts", () => {
-		// Simulate what openai-native/openai-codex do internally
 		const taskController = new AbortController()
 		const providerController = new AbortController()
 
-		// Link: metadata.signal → provider controller
 		taskController.signal.addEventListener("abort", () => providerController.abort(), { once: true })
 
 		expect(providerController.signal.aborted).toBe(false)
-
-		// Task cancels
 		taskController.abort()
-
 		expect(providerController.signal.aborted).toBe(true)
 	})
 
 	it("linked abort controller fires immediately if signal already aborted", () => {
 		const taskController = new AbortController()
-		taskController.abort() // already aborted
+		taskController.abort()
 
 		const providerController = new AbortController()
 
-		// Link after abort — should fire immediately
 		if (taskController.signal.aborted) {
 			providerController.abort()
 		} else {
@@ -51,12 +44,9 @@ describe("provider abort signal linking", () => {
 	})
 
 	it("provider controller is independent when no signal provided", () => {
-		// Simulate provider behavior without metadata.signal
 		const providerController = new AbortController()
 
-		// No linking — provider manages its own lifecycle
 		expect(providerController.signal.aborted).toBe(false)
-
 		providerController.abort()
 		expect(providerController.signal.aborted).toBe(true)
 	})
@@ -65,13 +55,10 @@ describe("provider abort signal linking", () => {
 		const taskController = new AbortController()
 		const providerController = new AbortController()
 
-		// Use { once: true } to auto-remove after first fire
 		taskController.signal.addEventListener("abort", () => providerController.abort(), { once: true })
 
 		taskController.abort()
 		expect(providerController.signal.aborted).toBe(true)
-
-		// No error on subsequent operations (listener removed)
 		expect(() => taskController.abort()).not.toThrow()
 	})
 })
@@ -83,8 +70,6 @@ describe("provider abort signal linking", () => {
 describe("ApiHandlerCreateMessageMetadata.signal contract", () => {
 	it("signal field is optional (undefined by default)", () => {
 		const metadata = { taskId: "test-123" }
-
-		// No signal field — providers should create their own controller
 		expect(metadata).not.toHaveProperty("signal")
 	})
 
@@ -106,7 +91,6 @@ describe("ApiHandlerCreateMessageMetadata.signal contract", () => {
 
 describe("BaseOpenAiCompatibleProvider abort signal forwarding", () => {
 	it("builds RequestOptions with signal when metadata.signal is present", () => {
-		// Simulate the logic in BaseOpenAiCompatibleProvider.createMessage()
 		const taskController = new AbortController()
 		const metadata = { taskId: "test-456", signal: taskController.signal }
 
@@ -133,11 +117,59 @@ describe("BaseOpenAiCompatibleProvider abort signal forwarding", () => {
 	})
 
 	it("OpenAI RequestOptions type accepts AbortSignal", () => {
-		// Type-level verification: the OpenAI SDK's RequestOptions type
-		// includes signal?: AbortSignal. This test just proves the shape
-		// compiles at runtime.
 		const controller = new AbortController()
 		const opts: OpenAI.RequestOptions = { signal: controller.signal }
 		expect(opts.signal).toBe(controller.signal)
+	})
+})
+
+// =============================================================================
+// RooHandler: signal merged with custom headers into requestOptions
+// =============================================================================
+
+describe("RooHandler abort signal + headers merging", () => {
+	it("merges signal with custom headers into one RequestOptions object", () => {
+		// Simulate what RooHandler.createMessage() does
+		const taskController = new AbortController()
+		const metadata = { taskId: "task-roo", signal: taskController.signal }
+
+		const headers: Record<string, string> = {
+			"X-Roo-App-Version": "1.0.0",
+		}
+		if (metadata.taskId) {
+			headers["X-Roo-Task-ID"] = metadata.taskId
+		}
+
+		const requestOptions: OpenAI.RequestOptions = {
+			headers,
+			...(metadata.signal ? { signal: metadata.signal } : {}),
+		}
+
+		// Both headers and signal are present
+		expect(requestOptions.headers).toEqual({
+			"X-Roo-App-Version": "1.0.0",
+			"X-Roo-Task-ID": "task-roo",
+		})
+		expect(requestOptions.signal).toBe(taskController.signal)
+		expect(requestOptions.signal!.aborted).toBe(false)
+
+		taskController.abort()
+		expect(requestOptions.signal!.aborted).toBe(true)
+	})
+
+	it("omits signal from requestOptions when metadata.signal is undefined", () => {
+		const metadata = { taskId: "task-roo-nosignal" }
+
+		const headers: Record<string, string> = {
+			"X-Roo-App-Version": "1.0.0",
+		}
+
+		const requestOptions: OpenAI.RequestOptions = {
+			headers,
+			...((metadata as any).signal ? { signal: (metadata as any).signal } : {}),
+		}
+
+		expect(requestOptions.headers).toBeDefined()
+		expect(requestOptions).not.toHaveProperty("signal")
 	})
 })

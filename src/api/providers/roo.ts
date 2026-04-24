@@ -139,7 +139,14 @@ export class RooHandler extends BaseOpenAiCompatibleProvider<string> {
 				headers["X-Roo-Task-ID"] = metadata.taskId
 			}
 
-			const stream = await this.createStream(systemPrompt, messages, metadata, { headers })
+			// Merge custom headers with abort signal so cancellation propagates
+			// to the underlying OpenAI SDK fetch call.
+			const requestOptions: OpenAI.RequestOptions = {
+				headers,
+				...(metadata?.signal ? { signal: metadata.signal } : {}),
+			}
+
+			const stream = await this.createStream(systemPrompt, messages, metadata, requestOptions)
 
 			let lastUsage: RooUsage | undefined = undefined
 			// Accumulator for reasoning_details FROM the API.
