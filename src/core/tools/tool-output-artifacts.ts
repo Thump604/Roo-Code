@@ -145,6 +145,11 @@ export async function readArtifact(
 	offset = 0,
 	limit = 40 * 1024,
 ): Promise<{ content: string; totalSize: number }> {
+	// Defense-in-depth: validate artifactId is basename-safe before reading.
+	if (!isValidArtifactId(artifactId)) {
+		throw new Error(`Invalid artifact ID: "${artifactId}"`)
+	}
+
 	const taskDir = await getTaskDirectoryPath(globalStoragePath, taskId)
 	const artifactPath = path.join(taskDir, "command-output", artifactId)
 	const stat = await fs.stat(artifactPath)

@@ -93,18 +93,38 @@ export interface ModelAdapter {
 // =============================================================================
 
 /**
+ * Model ID prefixes known to emit `<think>` tags in content.
+ * Used by OpenRouter to selectively enable tag stripping.
+ */
+export const THINK_TAG_MODEL_PREFIXES = [
+	"deepseek/",
+	"qwen/",
+	"meta-llama/",
+	"mistralai/mistral-small", // Mistral small can emit <think>
+] as const
+
+/**
+ * Check whether a model ID corresponds to a family that emits
+ * `<think>` reasoning tags in content.
+ */
+export function modelEmitsThinkTags(modelId: string): boolean {
+	const lower = modelId.toLowerCase()
+	return THINK_TAG_MODEL_PREFIXES.some((prefix) => lower.startsWith(prefix))
+}
+
+/**
  * Create a ModelAdapter for the given provider and model info.
  *
- * OpenAI-compatible providers (including OpenRouter) use the adapter
- * that strips `<think>` tags and extracts reasoning from dedicated
- * fields. Other model classes return the default passthrough adapter.
+ * OpenAI-compatible providers use the adapter that strips `<think>`
+ * tags and extracts reasoning from dedicated fields. Aggregator
+ * providers like OpenRouter should NOT be mapped here — they must
+ * create adapters per-request based on the selected model ID.
  */
 export function createModelAdapter(provider: string, _modelInfo?: ModelInfo): ModelAdapter {
 	switch (provider) {
 		case "openai":
 		case "openai-native":
 		case "openai-compatible":
-		case "openrouter":
 		case "vllm-mlx":
 			return new OpenAICompatibleAdapter()
 		default:

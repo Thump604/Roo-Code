@@ -436,7 +436,7 @@ describe("ReadCommandOutputTool", () => {
 			expect(mockTask.didToolFailInCurrentTurn).toBe(false)
 		})
 
-		it("should handle invalid offset gracefully", async () => {
+		it("should return empty page with metadata when offset is past EOF", async () => {
 			const artifactId = "cmd-1706119234567.txt"
 			const fileSize = 1000
 
@@ -448,8 +448,26 @@ describe("ReadCommandOutputTool", () => {
 				mockCallbacks,
 			)
 
-			expect(mockTask.say).toHaveBeenCalledWith("error", expect.stringContaining("Invalid offset"))
-			expect(mockCallbacks.pushToolResult).toHaveBeenCalledWith(expect.stringContaining("Error: Invalid offset"))
+			// Should NOT be an error — returns a controlled empty page
+			expect(mockTask.say).not.toHaveBeenCalledWith("error", expect.anything())
+			expect(mockCallbacks.pushToolResult).toHaveBeenCalledWith(expect.stringContaining("END_OF_FILE"))
+			expect(mockCallbacks.pushToolResult).toHaveBeenCalledWith(expect.stringContaining("1000 bytes"))
+		})
+
+		it("should return empty page when offset equals file size exactly", async () => {
+			const artifactId = "cmd-1706119234567.txt"
+			const fileSize = 1000
+
+			vi.mocked(fs.stat).mockResolvedValue({ size: fileSize } as any)
+
+			await tool.execute(
+				{ artifact_id: artifactId, offset: 1000 }, // Exact EOF
+				mockTask,
+				mockCallbacks,
+			)
+
+			expect(mockTask.say).not.toHaveBeenCalledWith("error", expect.anything())
+			expect(mockCallbacks.pushToolResult).toHaveBeenCalledWith(expect.stringContaining("END_OF_FILE"))
 		})
 
 		it("should handle negative offset", async () => {

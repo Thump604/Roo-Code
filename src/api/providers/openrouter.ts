@@ -33,7 +33,7 @@ import { getModelParams } from "../transform/model-params"
 import { getModels } from "./fetchers/modelCache"
 import { getModelEndpoints } from "./fetchers/modelEndpointCache"
 
-import { createModelAdapter } from "../adapters/model-adapter"
+import { createModelAdapter, modelEmitsThinkTags } from "../adapters/model-adapter"
 import { createReasoningProcessor } from "../adapters/reasoning-stream"
 
 import { DEFAULT_HEADERS } from "./constants"
@@ -148,7 +148,6 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 	protected endpoints: ModelRecord = {}
 	private readonly providerName = "OpenRouter"
 	private currentReasoningDetails: any[] = []
-	private readonly adapter = createModelAdapter("openrouter")
 
 	constructor(options: ApiHandlerOptions) {
 		super()
@@ -384,9 +383,13 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			}
 		}
 
-		// Reasoning processor handles <think> tag stripping and dedicated
-		// reasoning field extraction via the shared ModelAdapter boundary.
-		const reasoningProcessor = createReasoningProcessor(this.adapter)
+		// Create adapter based on the resolved model ID. Only models known
+		// to emit <think> tags get the OpenAICompatibleAdapter (tag stripping).
+		// Anthropic, Gemini, and OpenAI models routed through OpenRouter use
+		// the passthrough adapter so their content is not corrupted.
+		const adapterProvider = modelEmitsThinkTags(modelId) ? "openai-compatible" : "passthrough"
+		const adapter = createModelAdapter(adapterProvider)
+		const reasoningProcessor = createReasoningProcessor(adapter)
 
 		let lastUsage: CompletionUsage | undefined = undefined
 		// Accumulator for reasoning_details FROM the API.

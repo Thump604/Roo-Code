@@ -429,4 +429,12 @@ describe("readArtifact — offset and limit reads", () => {
 		const readResult = await readArtifact(tmpDir, "task-test", artifactId)
 		expect(readResult.content).toBe(text)
 	})
+
+	it("readArtifact rejects invalid artifact ID (path traversal)", async () => {
+		await expect(readArtifact(tmpDir, "task-bad", "../../../etc/passwd")).rejects.toThrow("Invalid artifact ID")
+	})
+
+	it("readArtifact rejects artifact ID with unknown prefix", async () => {
+		await expect(readArtifact(tmpDir, "task-bad", "evil-1234.txt")).rejects.toThrow("Invalid artifact ID")
+	})
 })

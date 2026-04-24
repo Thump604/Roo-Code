@@ -8,14 +8,14 @@
  * - Capability flags are correct
  */
 
-import { createModelAdapter, type ImageBlock, type ModelAdapter } from "../model-adapter"
+import { createModelAdapter, modelEmitsThinkTags, type ImageBlock, type ModelAdapter } from "../model-adapter"
 
 // =============================================================================
 // Factory
 // =============================================================================
 
 describe("createModelAdapter", () => {
-	it.each(["openai", "openai-native", "openai-compatible", "openrouter", "vllm-mlx"])(
+	it.each(["openai", "openai-native", "openai-compatible", "vllm-mlx"])(
 		"returns openai-compatible for %s",
 		(provider) => {
 			const adapter = createModelAdapter(provider)
@@ -23,9 +23,41 @@ describe("createModelAdapter", () => {
 		},
 	)
 
+	it("returns passthrough for openrouter (aggregator — adapter is per-request)", () => {
+		const adapter = createModelAdapter("openrouter")
+		expect(adapter.name).toBe("passthrough")
+	})
+
 	it.each(["anthropic", "bedrock", "gemini", "unknown"])("returns passthrough for %s", (provider) => {
 		const adapter = createModelAdapter(provider)
 		expect(adapter.name).toBe("passthrough")
+	})
+})
+
+// =============================================================================
+// modelEmitsThinkTags — model family detection
+// =============================================================================
+
+describe("modelEmitsThinkTags", () => {
+	it.each([
+		"deepseek/deepseek-r1",
+		"deepseek/deepseek-chat",
+		"qwen/qwen-2.5-coder-32b",
+		"qwen/qwq-32b",
+		"meta-llama/llama-3.1-70b",
+		"mistralai/mistral-small-latest",
+	])("returns true for %s", (modelId) => {
+		expect(modelEmitsThinkTags(modelId)).toBe(true)
+	})
+
+	it.each([
+		"anthropic/claude-sonnet-4",
+		"google/gemini-2.5-pro",
+		"openai/gpt-4o",
+		"openai/o1",
+		"mistralai/mistral-large-latest",
+	])("returns false for %s", (modelId) => {
+		expect(modelEmitsThinkTags(modelId)).toBe(false)
 	})
 })
 

@@ -80,6 +80,15 @@ vitest.mock("../fetchers/modelCache", () => ({
 				excludedTools: ["existing_excluded"],
 				includedTools: ["existing_included"],
 			},
+			"deepseek/deepseek-r1": {
+				maxTokens: 8192,
+				contextWindow: 64000,
+				supportsImages: false,
+				supportsPromptCache: false,
+				inputPrice: 0.55,
+				outputPrice: 2.19,
+				description: "DeepSeek R1",
+			},
 		})
 	}),
 }))
@@ -526,8 +535,11 @@ describe("OpenRouterHandler", () => {
 			expect(endChunks[0].id).toBe("call_openrouter_test")
 		})
 
-		it("strips <think> tags from content via ModelAdapter reasoning processor", async () => {
-			const handler = new OpenRouterHandler(mockOptions)
+		it("strips <think> tags from content for DeepSeek models via ModelAdapter", async () => {
+			const handler = new OpenRouterHandler({
+				...mockOptions,
+				openRouterModelId: "deepseek/deepseek-r1",
+			})
 
 			const mockStream = {
 				async *[Symbol.asyncIterator]() {
@@ -563,8 +575,46 @@ describe("OpenRouterHandler", () => {
 			expect(allReasoning).toBe("internal reasoning")
 		})
 
-		it("extracts top-level reasoning field via adapter when no reasoning_details", async () => {
-			const handler = new OpenRouterHandler(mockOptions)
+		it("does NOT strip <think> tags for Anthropic models (passthrough adapter)", async () => {
+			const handler = new OpenRouterHandler(mockOptions) // anthropic/claude-sonnet-4
+
+			const mockStream = {
+				async *[Symbol.asyncIterator]() {
+					yield {
+						id: "test-id",
+						choices: [{ delta: { content: "code example: <think>not reasoning</think>" } }],
+					}
+					yield {
+						id: "test-id",
+						choices: [{ delta: {} }],
+						usage: { prompt_tokens: 5, completion_tokens: 10 },
+					}
+				},
+			}
+
+			const mockCreate = vitest.fn().mockResolvedValue(mockStream)
+			;(OpenAI as any).prototype.chat = {
+				completions: { create: mockCreate },
+			} as any
+
+			const chunks = []
+			for await (const chunk of handler.createMessage("system", [{ role: "user" as const, content: "test" }])) {
+				chunks.push(chunk)
+			}
+
+			const textChunks = chunks.filter((c) => c.type === "text")
+			const allText = textChunks.map((c) => (c as any).text).join("")
+
+			// Content should pass through unmodified — no tag stripping for Anthropic
+			expect(allText).toContain("<think>")
+			expect(allText).toContain("not reasoning")
+		})
+
+		it("extracts top-level reasoning field via adapter for DeepSeek models", async () => {
+			const handler = new OpenRouterHandler({
+				...mockOptions,
+				openRouterModelId: "deepseek/deepseek-r1",
+			})
 
 			const mockStream = {
 				async *[Symbol.asyncIterator]() {
@@ -598,7 +648,10 @@ describe("OpenRouterHandler", () => {
 		})
 
 		it("does not duplicate reasoning when reasoning_details also provides it", async () => {
-			const handler = new OpenRouterHandler(mockOptions)
+			const handler = new OpenRouterHandler({
+				...mockOptions,
+				openRouterModelId: "deepseek/deepseek-r1",
+			})
 
 			const mockStream = {
 				async *[Symbol.asyncIterator]() {

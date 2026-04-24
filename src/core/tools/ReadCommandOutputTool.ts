@@ -151,11 +151,19 @@ export class ReadCommandOutputTool extends BaseTool<"read_command_output"> {
 			const stats = await fs.stat(artifactPath)
 			const totalSize = stats.size
 
-			// Validate offset
-			if (offset < 0 || offset >= totalSize) {
-				const errorMsg = `Invalid offset: ${offset}. File size is ${totalSize} bytes. Offset must be between 0 and ${totalSize - 1}.`
+			// Validate offset — negative is an error, at/past EOF returns empty page with metadata
+			if (offset < 0) {
+				const errorMsg = `Invalid offset: ${offset}. Offset must be >= 0.`
 				await task.say("error", errorMsg)
 				pushToolResult(`Error: ${errorMsg}`)
+				return
+			}
+
+			if (offset >= totalSize) {
+				const formattedSize = this.formatBytes(totalSize)
+				pushToolResult(
+					`[artifact_id: ${artifact_id} | size: ${formattedSize} | offset: ${offset} | status: END_OF_FILE]\n\nNo more content — offset ${offset} is at or past end of file (${totalSize} bytes).`,
+				)
 				return
 			}
 
