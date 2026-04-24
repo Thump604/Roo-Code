@@ -123,6 +123,17 @@ describe("loadHooksConfig", () => {
 		await expect(loadHooksConfig(dir)).rejects.toThrow("hooks[0].event must be a string")
 	})
 
+	it("throws on unknown event name (typo fails closed)", async () => {
+		const dir = await makeTempDir()
+		await fs.mkdir(path.join(dir, ".mesa"))
+		await fs.writeFile(
+			path.join(dir, ".mesa", "hooks.json"),
+			JSON.stringify({ hooks: [{ event: "before_tools", command: ["echo"] }] }),
+		)
+
+		await expect(loadHooksConfig(dir)).rejects.toThrow("is not a valid hook event")
+	})
+
 	it("throws when command is not a string array", async () => {
 		const dir = await makeTempDir()
 		await fs.mkdir(path.join(dir, ".mesa"))

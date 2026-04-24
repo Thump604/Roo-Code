@@ -102,9 +102,19 @@ async function scenarioReasoningTags(_req, res) {
 }
 
 async function scenarioToolApproval(_req, res) {
-	// Stream a tool call — the CLI should trigger approval_request
-	const fnName = "execute_command"
-	const argsChunks = ['{"comm', 'and":"', 'echo fix', 'ture-test"}']
+	// Stream a tool call that requires manual approval.
+	// Uses write_to_file which requires write permission, not auto-approved by default.
+	const fnName = "write_to_file"
+	const argsChunks = [
+		'{"path":',
+		'"/tmp/fi',
+		'xture-te',
+		'st.txt",',
+		'"content',
+		'":"fixtu',
+		're test ',
+		'output"}',
+	]
 
 	// First chunk: role + tool call start
 	res.write(sseToolCallChunk(0, 0, fnName, undefined, null))

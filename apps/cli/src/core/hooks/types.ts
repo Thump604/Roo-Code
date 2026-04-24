@@ -85,6 +85,17 @@ export interface HookRunResult {
 	durationMs: number
 }
 
+/** The set of valid hook event names, for config validation. */
+export const VALID_HOOK_EVENT_NAMES: ReadonlySet<string> = new Set<HookEventName>([
+	"task_start",
+	"task_end",
+	"before_tool",
+	"after_tool",
+	"before_model_request",
+	"after_model_response",
+	"approval_request",
+])
+
 /** Default timeout for hooks. */
 export const HOOK_TIMEOUT_DEFAULT = 10_000
 

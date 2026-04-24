@@ -127,15 +127,31 @@ describe("TaskIndex", () => {
 			expect(data.entries[1]!.taskId).toBe("task-1")
 		})
 
-		it("sanitizes prompt summary", async () => {
+		it("validates and truncates caller-provided summary", async () => {
 			const dir = await makeTempDir()
 			const index = new TaskIndex(dir)
 
-			const longPrompt = "a".repeat(200) + "\nwith newline"
-			const entry = await index.upsert(makeEntry("task-1", { promptSummary: longPrompt }))
+			const longSummary = "a".repeat(200) + "\nwith newline"
+			const entry = await index.upsert(makeEntry("task-1", { promptSummary: longSummary }))
 
 			expect(entry.promptSummary.length).toBeLessThanOrEqual(120)
 			expect(entry.promptSummary).not.toContain("\n")
+		})
+
+		it("uses placeholder for empty summary", async () => {
+			const dir = await makeTempDir()
+			const index = new TaskIndex(dir)
+
+			const entry = await index.upsert(makeEntry("task-1", { promptSummary: "" }))
+			expect(entry.promptSummary).toBe("(no summary)")
+		})
+
+		it("uses placeholder for whitespace-only summary", async () => {
+			const dir = await makeTempDir()
+			const index = new TaskIndex(dir)
+
+			const entry = await index.upsert(makeEntry("task-1", { promptSummary: "   " }))
+			expect(entry.promptSummary).toBe("(no summary)")
 		})
 
 		it("creates directory if it does not exist", async () => {

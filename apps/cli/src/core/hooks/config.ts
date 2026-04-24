@@ -12,6 +12,7 @@ import fs from "fs/promises"
 import path from "path"
 
 import type { HookDefinition, HooksConfig } from "./types.js"
+import { VALID_HOOK_EVENT_NAMES } from "./types.js"
 
 const MESA_HOOKS_FILE = ".mesa/hooks.json"
 const LEGACY_HOOKS_FILE = ".roo/hooks.json"
@@ -75,6 +76,12 @@ function validateHooksConfig(data: unknown, filePath: string): HooksConfig {
 
 		if (typeof h.event !== "string") {
 			throw new Error(`hooks[${i}].event must be a string at ${filePath}`)
+		}
+		if (!VALID_HOOK_EVENT_NAMES.has(h.event)) {
+			throw new Error(
+				`hooks[${i}].event "${h.event}" is not a valid hook event at ${filePath}. ` +
+					`Valid events: ${[...VALID_HOOK_EVENT_NAMES].join(", ")}`,
+			)
 		}
 		if (!Array.isArray(h.command) || h.command.length === 0 || !h.command.every((c) => typeof c === "string")) {
 			throw new Error(`hooks[${i}].command must be a non-empty string array at ${filePath}`)

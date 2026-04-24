@@ -17,9 +17,18 @@ function emptyIndex(): TaskIndexFile {
 	return { version: 1, entries: [] }
 }
 
-function sanitizePrompt(prompt: string): string {
-	// Take first ~120 chars, strip newlines, no secrets
-	return prompt.replace(/\n/g, " ").slice(0, 120).trim()
+/**
+ * Validate a caller-provided safe summary. The caller must never pass raw
+ * prompt text — only a pre-sanitized title or generated label. This function
+ * enforces length/newline constraints but does not attempt redaction.
+ *
+ * If the summary is empty or missing, a generic placeholder is used.
+ */
+function validateSummary(summary: string | undefined): string {
+	if (!summary || summary.trim().length === 0) {
+		return "(no summary)"
+	}
+	return summary.replace(/\n/g, " ").slice(0, 120).trim()
 }
 
 export class TaskIndex {
@@ -71,7 +80,7 @@ export class TaskIndex {
 		if (existing) {
 			existing.updatedAt = now
 			existing.taskStatus = entry.taskStatus
-			existing.promptSummary = sanitizePrompt(entry.promptSummary)
+			existing.promptSummary = validateSummary(entry.promptSummary)
 			if (entry.model !== undefined) existing.model = entry.model
 			if (entry.provider !== undefined) existing.provider = entry.provider
 			await this.write(index)
@@ -83,7 +92,7 @@ export class TaskIndex {
 			createdAt: now,
 			updatedAt: now,
 			cwd: entry.cwd,
-			promptSummary: sanitizePrompt(entry.promptSummary),
+			promptSummary: validateSummary(entry.promptSummary),
 			taskStatus: entry.taskStatus,
 			pinned: entry.pinned ?? false,
 			model: entry.model,
