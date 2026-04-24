@@ -218,11 +218,11 @@ class TuiSession:
         self.wait_for(lambda buffer: compiled.search(buffer) is not None, timeout, description or f"regex /{pattern}/")
 
     def wait_for_assistant_reply(self, text: str, timeout: float, description: str | None = None) -> None:
-        pattern = rf"Roo said:[^\n]*\n\s*{re.escape(text)}\b"
+        pattern = rf"Mesa said:[^\n]*\n\s*{re.escape(text)}\b"
         self.wait_for_regex(pattern, timeout, description or f'assistant reply "{text}"')
 
     def wait_for_assistant_contains(self, text: str, timeout: float, description: str | None = None) -> None:
-        pattern = rf"Roo said:[\s\S]*?{re.escape(text)}"
+        pattern = rf"Mesa said:[\s\S]*?{re.escape(text)}"
         self.wait_for_regex(pattern, timeout, description or f'assistant reply containing "{text}"')
 
     def submit_prompt(self, text: str, timeout: float = 20) -> None:
@@ -257,27 +257,27 @@ class TuiSession:
 
 
 def case_launch_and_render(context: SmokeContext) -> None:
-    with tempfile.TemporaryDirectory(prefix="roo-tui-launch-") as home_dir:
+    with tempfile.TemporaryDirectory(prefix="mesa-tui-launch-") as home_dir:
         home = Path(home_dir)
         context.seed_home(home)
         with TuiSession(context, "launch-and-render", home) as session:
-            session.wait_for_text("Roo Code CLI v0.1.17", 15)
+            session.wait_for_text("Mesa Code CLI", 15)
             session.wait_for_text("? for shortcuts", 15)
 
 
 def case_submit_prompt_live(context: SmokeContext) -> None:
-    with tempfile.TemporaryDirectory(prefix="roo-tui-submit-") as home_dir:
+    with tempfile.TemporaryDirectory(prefix="mesa-tui-submit-") as home_dir:
         home = Path(home_dir)
         context.seed_home(home)
         with TuiSession(context, "submit-prompt-live", home, ["--reasoning-effort", "disabled"]) as session:
-            session.wait_for_text("Roo Code CLI v0.1.17", 15)
+            session.wait_for_text("Mesa Code CLI", 15)
             token = "KIWI"
             session.submit_prompt(f"Reply with the single word {token}.")
             session.wait_for_assistant_reply(token, 120, "final assistant reply")
 
 
 def case_approval_flow_live(context: SmokeContext) -> None:
-    with tempfile.TemporaryDirectory(prefix="roo-tui-approval-") as home_dir:
+    with tempfile.TemporaryDirectory(prefix="mesa-tui-approval-") as home_dir:
         home = Path(home_dir)
         context.seed_home(home)
         with TuiSession(
@@ -286,7 +286,7 @@ def case_approval_flow_live(context: SmokeContext) -> None:
             home,
             ["--require-approval", "--reasoning-effort", "disabled"],
         ) as session:
-            session.wait_for_text("Roo Code CLI v0.1.17", 15)
+            session.wait_for_text("Mesa Code CLI", 15)
             session.submit_prompt("Use read_file to read AGENTS.md and reply with its first line only.")
             session.wait_for_text("readFile", 120, "tool approval request")
             session.wait_for_text("Press Y to approve, N to reject", 15)
@@ -295,11 +295,11 @@ def case_approval_flow_live(context: SmokeContext) -> None:
 
 
 def case_autocomplete_picker_navigation(context: SmokeContext) -> None:
-    with tempfile.TemporaryDirectory(prefix="roo-tui-picker-") as home_dir:
+    with tempfile.TemporaryDirectory(prefix="mesa-tui-picker-") as home_dir:
         home = Path(home_dir)
         context.seed_home(home)
         with TuiSession(context, "autocomplete-picker-navigation", home) as session:
-            session.wait_for_text("Roo Code CLI v0.1.17", 15)
+            session.wait_for_text("Mesa Code CLI", 15)
             session.send_text("/in")
             session.wait_for_text("/init - Analyze codebase", 15)
             session.press_tab()
@@ -308,13 +308,13 @@ def case_autocomplete_picker_navigation(context: SmokeContext) -> None:
 
 
 def case_resume_existing_session(context: SmokeContext) -> None:
-    with tempfile.TemporaryDirectory(prefix="roo-tui-resume-") as home_dir:
+    with tempfile.TemporaryDirectory(prefix="mesa-tui-resume-") as home_dir:
         home = Path(home_dir)
         context.seed_home(home)
         seed_prompt = "Reply with the single word PEAR."
 
         with TuiSession(context, "resume-existing-session-seed", home, ["--reasoning-effort", "disabled"]) as session:
-            session.wait_for_text("Roo Code CLI v0.1.17", 15)
+            session.wait_for_text("Mesa Code CLI", 15)
             session.submit_prompt(seed_prompt)
             session.wait_for_assistant_reply("PEAR", 120, "seed assistant reply")
 
@@ -324,7 +324,7 @@ def case_resume_existing_session(context: SmokeContext) -> None:
             home,
             ["--reasoning-effort", "disabled", "--continue"],
         ) as session:
-            session.wait_for_text("Roo Code CLI v0.1.17", 15)
+            session.wait_for_text("Mesa Code CLI", 15)
             session.read_for(5)
             session.submit_prompt("What single word did I ask you to reply with previously? Answer with that word only.")
             session.wait_for_assistant_reply("PEAR", 120, "resumed-session assistant reply")
@@ -340,7 +340,7 @@ CASES: dict[str, Callable[[SmokeContext], None]] = {
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Roo CLI TUI smoke tests")
+    parser = argparse.ArgumentParser(description="Run Mesa CLI TUI smoke tests")
     parser.add_argument("--list", action="store_true", help="List available TUI smoke cases")
     parser.add_argument("--match", help="Only run cases containing this substring")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="OpenAI-compatible base URL to test against")
@@ -351,7 +351,7 @@ def main() -> int:
     args = parse_args()
     cli_root = Path(__file__).resolve().parents[2]
     repo_root = cli_root.parents[1]
-    logs_root = Path(tempfile.mkdtemp(prefix="roo-tui-smoke-logs-"))
+    logs_root = Path(tempfile.mkdtemp(prefix="mesa-tui-smoke-logs-"))
     dist_cli = cli_root / "dist/index.js"
     extension_dir = repo_root / "src/dist"
 

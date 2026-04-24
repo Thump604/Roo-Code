@@ -450,7 +450,7 @@ CASES = {
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Roo CLI non-interactive smoke tests")
+    parser = argparse.ArgumentParser(description="Run Mesa CLI non-interactive smoke tests")
     parser.add_argument("--list", action="store_true", help="List available smoke cases")
     parser.add_argument("--match", help="Only run cases containing this substring")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="OpenAI-compatible base URL to test against")
