@@ -4,10 +4,10 @@ import OpenAI from "openai"
 import type { ModelInfo } from "@roo-code/types"
 
 import { type ApiHandlerOptions, getModelMaxOutputTokens } from "../../shared/api"
-import { TagMatcher } from "../../utils/tag-matcher"
 import { ApiStream, ApiStreamUsageChunk } from "../transform/stream"
 import { convertToOpenAiMessages } from "../transform/openai-format"
 import { createModelAdapter, type ModelAdapter } from "../adapters/model-adapter"
+import { createReasoningProcessor } from "../adapters/reasoning-stream"
 
 import type { SingleCompletionHandler, ApiHandlerCreateMessageMetadata } from "../index"
 import { DEFAULT_HEADERS } from "./constants"
@@ -130,20 +130,7 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 
 		const stream = await this.createStream(systemPrompt, messages, metadata, requestOptions)
 
-		// Use the adapter to decide whether <think> tags should be extracted.
-		// When the adapter says to strip, TagMatcher splits them into reasoning
-		// vs visible text. Otherwise text passes through unchanged.
-		const stripTags = this.adapter.shouldStripReasoningTags()
-		const matcher = stripTags
-			? new TagMatcher(
-					"think",
-					(chunk) =>
-						({
-							type: chunk.matched ? "reasoning" : "text",
-							text: chunk.data,
-						}) as const,
-				)
-			: null
+		const reasoning = createReasoningProcessor(this.adapter)
 
 		let lastUsage: OpenAI.CompletionUsage | undefined
 		const activeToolCallIds = new Set<string>()
@@ -161,22 +148,12 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 			const finishReason = chunk.choices?.[0]?.finish_reason
 
 			if (delta?.content) {
-				if (matcher) {
-					for (const processedChunk of matcher.update(delta.content)) {
-						yield processedChunk
-					}
-				} else {
-					yield { type: "text", text: delta.content }
-				}
+				yield* reasoning.processContent(delta.content)
 			}
 
-			// Use the adapter to extract reasoning from dedicated fields
-			// (e.g., reasoning_content for DeepSeek R1, reasoning for others).
+			// Extract reasoning from dedicated fields (reasoning_content, reasoning)
 			if (delta) {
-				const extracted = this.adapter.extractReasoning(delta as Record<string, unknown>)
-				if (extracted && extracted.text.trim()) {
-					yield { type: "reasoning", text: extracted.text }
-				}
+				yield* reasoning.processReasoning(delta as Record<string, unknown>)
 			}
 
 			// Emit raw tool call chunks - NativeToolCallParser handles state management
@@ -213,12 +190,7 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 			yield this.processUsageMetrics(lastUsage, this.getModel().info)
 		}
 
-		// Process any remaining content in the tag matcher
-		if (matcher) {
-			for (const processedChunk of matcher.final()) {
-				yield processedChunk
-			}
-		}
+		yield* reasoning.final()
 	}
 
 	protected processUsageMetrics(usage: any, modelInfo?: any): ApiStreamUsageChunk {

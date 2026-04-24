@@ -12,12 +12,13 @@ import {
 
 import type { ApiHandlerOptions } from "../../shared/api"
 
-import { TagMatcher } from "../../utils/tag-matcher"
-
 import { convertToOpenAiMessages } from "../transform/openai-format"
 import { convertToR1Format } from "../transform/r1-format"
 import { ApiStream, ApiStreamUsageChunk } from "../transform/stream"
 import { getModelParams } from "../transform/model-params"
+
+import { createModelAdapter } from "../adapters/model-adapter"
+import { createReasoningProcessor } from "../adapters/reasoning-stream"
 
 import { DEFAULT_HEADERS } from "./constants"
 import { BaseProvider } from "./base-provider"
@@ -183,14 +184,8 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				throw handleOpenAIError(error, this.providerName)
 			}
 
-			const matcher = new TagMatcher(
-				"think",
-				(chunk) =>
-					({
-						type: chunk.matched ? "reasoning" : "text",
-						text: chunk.data,
-					}) as const,
-			)
+			const adapter = createModelAdapter("openai-compatible")
+			const reasoningProcessor = createReasoningProcessor(adapter)
 
 			let lastUsage
 			const activeToolCallIds = new Set<string>()
@@ -200,17 +195,10 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				const finishReason = chunk.choices?.[0]?.finish_reason
 
 				if (delta.content) {
-					for (const chunk of matcher.update(delta.content)) {
-						yield chunk
-					}
+					yield* reasoningProcessor.processContent(delta.content)
 				}
 
-				if ("reasoning_content" in delta && delta.reasoning_content) {
-					yield {
-						type: "reasoning",
-						text: (delta.reasoning_content as string | undefined) || "",
-					}
-				}
+				yield* reasoningProcessor.processReasoning(delta as Record<string, unknown>)
 
 				yield* this.processToolCalls(delta, finishReason, activeToolCallIds)
 
@@ -219,9 +207,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				}
 			}
 
-			for (const chunk of matcher.final()) {
-				yield chunk
-			}
+			yield* reasoningProcessor.final()
 
 			if (lastUsage) {
 				yield this.processUsageMetrics(lastUsage, modelInfo)

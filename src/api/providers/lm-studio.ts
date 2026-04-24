@@ -7,9 +7,10 @@ import { type ModelInfo, openAiModelInfoSaneDefaults, LMSTUDIO_DEFAULT_TEMPERATU
 import type { ApiHandlerOptions } from "../../shared/api"
 
 import { NativeToolCallParser } from "../../core/assistant-message/NativeToolCallParser"
-import { TagMatcher } from "../../utils/tag-matcher"
 
 import { convertToOpenAiMessages } from "../transform/openai-format"
+import { createModelAdapter } from "../adapters/model-adapter"
+import { createReasoningProcessor } from "../adapters/reasoning-stream"
 import { ApiStream } from "../transform/stream"
 
 import { BaseProvider } from "./base-provider"
@@ -104,14 +105,8 @@ export class LmStudioHandler extends BaseProvider implements SingleCompletionHan
 				throw handleOpenAIError(error, this.providerName)
 			}
 
-			const matcher = new TagMatcher(
-				"think",
-				(chunk) =>
-					({
-						type: chunk.matched ? "reasoning" : "text",
-						text: chunk.data,
-					}) as const,
-			)
+			const adapter = createModelAdapter("openai-compatible")
+			const reasoning = createReasoningProcessor(adapter)
 
 			for await (const chunk of results) {
 				const delta = chunk.choices[0]?.delta
@@ -119,9 +114,11 @@ export class LmStudioHandler extends BaseProvider implements SingleCompletionHan
 
 				if (delta?.content) {
 					assistantText += delta.content
-					for (const processedChunk of matcher.update(delta.content)) {
-						yield processedChunk
-					}
+					yield* reasoning.processContent(delta.content)
+				}
+
+				if (delta) {
+					yield* reasoning.processReasoning(delta as Record<string, unknown>)
 				}
 
 				// Handle tool calls in stream - emit partial chunks for NativeToolCallParser
@@ -146,9 +143,7 @@ export class LmStudioHandler extends BaseProvider implements SingleCompletionHan
 				}
 			}
 
-			for (const processedChunk of matcher.final()) {
-				yield processedChunk
-			}
+			yield* reasoning.final()
 
 			let outputTokens = 0
 			try {

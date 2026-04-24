@@ -6,7 +6,8 @@ import { ApiStream } from "../transform/stream"
 import { BaseProvider } from "./base-provider"
 import type { ApiHandlerOptions } from "../../shared/api"
 import { getOllamaModels } from "./fetchers/ollama"
-import { TagMatcher } from "../../utils/tag-matcher"
+import { createModelAdapter } from "../adapters/model-adapter"
+import { createReasoningProcessor } from "../adapters/reasoning-stream"
 import type { SingleCompletionHandler, ApiHandlerCreateMessageMetadata } from "../index"
 
 interface OllamaChatOptions {
@@ -214,14 +215,8 @@ export class NativeOllamaHandler extends BaseProvider implements SingleCompletio
 			...convertToOllamaMessages(messages),
 		]
 
-		const matcher = new TagMatcher(
-			"think",
-			(chunk) =>
-				({
-					type: chunk.matched ? "reasoning" : "text",
-					text: chunk.data,
-				}) as const,
-		)
+		const adapter = createModelAdapter("openai-compatible")
+		const reasoning = createReasoningProcessor(adapter)
 
 		try {
 			// Build options object conditionally
@@ -253,10 +248,8 @@ export class NativeOllamaHandler extends BaseProvider implements SingleCompletio
 			try {
 				for await (const chunk of stream) {
 					if (typeof chunk.message.content === "string" && chunk.message.content.length > 0) {
-						// Process content through matcher for reasoning detection
-						for (const matcherChunk of matcher.update(chunk.message.content)) {
-							yield matcherChunk
-						}
+						// Process content through adapter-driven reasoning detection
+						yield* reasoning.processContent(chunk.message.content)
 					}
 
 					// Handle tool calls - emit partial chunks for NativeToolCallParser compatibility
@@ -287,10 +280,8 @@ export class NativeOllamaHandler extends BaseProvider implements SingleCompletio
 					}
 				}
 
-				// Yield any remaining content from the matcher
-				for (const chunk of matcher.final()) {
-					yield chunk
-				}
+				// Yield any remaining content from the reasoning processor
+				yield* reasoning.final()
 
 				for (const toolCallId of toolCallIds) {
 					yield {
