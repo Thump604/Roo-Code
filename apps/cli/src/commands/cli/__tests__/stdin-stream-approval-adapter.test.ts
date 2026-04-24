@@ -342,9 +342,11 @@ describe("StdinStreamApprovalAdapter — approvalId enforcement", () => {
 		const result = await promise
 		expect(result.response).toBe("yesButtonClicked")
 
-		// Should have emitted a legacy warning
+		// Should have emitted a legacy warning as ack (not done — not terminal)
 		const warningEvents = events.filter((e) => e.code === "legacy_approval_no_id")
 		expect(warningEvents).toHaveLength(1)
+		expect(warningEvents[0]!.subtype).toBe("ack")
+		expect(warningEvents[0]!.done).toBe(false)
 		expect(warningEvents[0]!.content).toContain(expectedId)
 	})
 

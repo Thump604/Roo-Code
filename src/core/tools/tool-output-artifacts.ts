@@ -23,6 +23,16 @@ export interface TruncationResult {
 	truncated: boolean
 }
 
+/**
+ * Validate that an artifact ID is basename-safe (no path traversal).
+ * Accepts cmd-{id}.txt and mcp-{id}.txt formats only.
+ */
+const VALID_ARTIFACT_ID = /^(cmd|mcp)-[\w-]+\.txt$/
+
+export function isValidArtifactId(artifactId: string): boolean {
+	return VALID_ARTIFACT_ID.test(artifactId)
+}
+
 /** Monotonic counter to prevent artifact ID collisions within a process. */
 let artifactCounter = 0
 
@@ -70,6 +80,11 @@ export async function maybeTruncateToolOutput(
 
 	// No storage path → return full text rather than advertising a missing artifact
 	if (!globalStoragePath) {
+		return { preview: text, truncated: false }
+	}
+
+	// Defense-in-depth: validate artifactId is basename-safe before writing.
+	if (!isValidArtifactId(artifactId)) {
 		return { preview: text, truncated: false }
 	}
 

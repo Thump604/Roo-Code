@@ -123,12 +123,19 @@ describe("parseStdinStreamCommand", () => {
 			expect((result as Record<string, unknown>).approvalId).toBeUndefined()
 		})
 
-		it("ignores empty-string approvalId", () => {
-			const result = parseStdinStreamCommand(
-				JSON.stringify({ command: "approve", requestId: "req-10", approvalId: "  " }),
-				1,
-			)
-			expect((result as Record<string, unknown>).approvalId).toBeUndefined()
+		it("rejects empty-string approvalId (fail closed)", () => {
+			expect(() =>
+				parseStdinStreamCommand(
+					JSON.stringify({ command: "approve", requestId: "req-10", approvalId: "  " }),
+					1,
+				),
+			).toThrow("approvalId must be a non-empty string when provided")
+		})
+
+		it("rejects non-string approvalId (fail closed)", () => {
+			expect(() =>
+				parseStdinStreamCommand(JSON.stringify({ command: "approve", requestId: "req-11", approvalId: 42 }), 1),
+			).toThrow("approvalId must be a non-empty string when provided")
 		})
 	})
 

@@ -215,6 +215,7 @@ export type RooCliControlEvent = z.infer<typeof rooCliControlEventSchema>
 export const rooCliApprovalRequestEventSchema = rooCliStreamEventSchema.extend({
 	type: z.literal("control"),
 	subtype: z.literal("approval_request"),
+	requestId: z.string().min(1),
 	approvalId: z.string().min(1),
 	code: z.string().min(1),
 	command: rooCliCommandNameSchema,

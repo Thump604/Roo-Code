@@ -20,7 +20,12 @@ import * as os from "os"
 
 import { TERMINAL_PREVIEW_BYTES } from "@roo-code/types"
 
-import { maybeTruncateToolOutput, generateMcpArtifactId, readArtifact } from "../tool-output-artifacts"
+import {
+	maybeTruncateToolOutput,
+	generateMcpArtifactId,
+	readArtifact,
+	isValidArtifactId,
+} from "../tool-output-artifacts"
 
 const threshold = TERMINAL_PREVIEW_BYTES["medium"] // 10KB
 
@@ -59,6 +64,55 @@ describe("maybeTruncateToolOutput — no storage path", () => {
 		expect(result.truncated).toBe(false)
 		expect(result.preview).toBe(text)
 	})
+})
+
+// =============================================================================
+// Defense-in-depth: artifactId validation inside helper
+// =============================================================================
+
+describe("maybeTruncateToolOutput — artifactId validation", () => {
+	it("returns full text when artifactId contains path traversal", async () => {
+		const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-id-test-"))
+		try {
+			const text = "x".repeat(threshold + 100)
+			const result = await maybeTruncateToolOutput(text, "../../../etc/passwd", "task-bad", tmpDir)
+			expect(result.truncated).toBe(false)
+			expect(result.preview).toBe(text)
+		} finally {
+			await fs.rm(tmpDir, { recursive: true, force: true })
+		}
+	})
+
+	it("returns full text when artifactId has invalid prefix", async () => {
+		const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-id-test-"))
+		try {
+			const text = "y".repeat(threshold + 100)
+			const result = await maybeTruncateToolOutput(text, "evil-1234.txt", "task-bad2", tmpDir)
+			expect(result.truncated).toBe(false)
+			expect(result.preview).toBe(text)
+		} finally {
+			await fs.rm(tmpDir, { recursive: true, force: true })
+		}
+	})
+})
+
+// =============================================================================
+// isValidArtifactId — shared validator
+// =============================================================================
+
+describe("isValidArtifactId", () => {
+	it.each(["cmd-1706119234567.txt", "mcp-1706119234567-0.txt", "mcp-abc_def-3.txt"])("accepts valid ID: %s", (id) =>
+		expect(isValidArtifactId(id)).toBe(true),
+	)
+
+	it.each([
+		"../../../etc/passwd",
+		"cmd-123.txt/../../etc/passwd",
+		"mcp-../evil.txt",
+		"evil-1234.txt",
+		"cmd-123;rm -rf.txt",
+		"cmd-$(whoami).txt",
+	])("rejects invalid ID: %s", (id) => expect(isValidArtifactId(id)).toBe(false))
 })
 
 // =============================================================================

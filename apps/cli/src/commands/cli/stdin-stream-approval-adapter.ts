@@ -236,13 +236,14 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 	private emitLegacyApprovalWarning(requestId: string, command: RooCliCommandName, approvalId: string): void {
 		this.emitter.emitRawEvent({
 			type: "control",
-			subtype: "done",
+			subtype: "ack",
 			requestId,
 			command,
 			taskId: this.taskIdProvider(),
 			content: `legacy approval without approvalId; expected "${approvalId}"`,
 			code: "legacy_approval_no_id",
 			success: true,
+			done: false,
 		})
 	}
 }

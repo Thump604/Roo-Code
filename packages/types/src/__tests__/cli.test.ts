@@ -96,6 +96,7 @@ describe("CLI types", () => {
 			const result = rooCliApprovalRequestEventSchema.safeParse({
 				type: "control",
 				subtype: "approval_request",
+				requestId: "req-1",
 				approvalId: "approval-1",
 				code: "tool",
 				command: "approve",
@@ -107,10 +108,23 @@ describe("CLI types", () => {
 			expect(result.success).toBe(true)
 		})
 
+		it("rejects approval_request missing requestId", () => {
+			const result = rooCliApprovalRequestEventSchema.safeParse({
+				type: "control",
+				subtype: "approval_request",
+				approvalId: "approval-1",
+				code: "tool",
+				command: "approve",
+			})
+
+			expect(result.success).toBe(false)
+		})
+
 		it("rejects approval_request missing approvalId", () => {
 			const result = rooCliApprovalRequestEventSchema.safeParse({
 				type: "control",
 				subtype: "approval_request",
+				requestId: "req-1",
 				code: "tool",
 				command: "approve",
 			})
@@ -122,6 +136,7 @@ describe("CLI types", () => {
 			const result = rooCliApprovalRequestEventSchema.safeParse({
 				type: "control",
 				subtype: "approval_request",
+				requestId: "req-1",
 				approvalId: "",
 				code: "tool",
 				command: "approve",
@@ -134,6 +149,7 @@ describe("CLI types", () => {
 			const result = rooCliApprovalRequestEventSchema.safeParse({
 				type: "control",
 				subtype: "approval_request",
+				requestId: "req-1",
 				approvalId: "approval-1",
 				command: "approve",
 			})
@@ -145,6 +161,7 @@ describe("CLI types", () => {
 			const result = rooCliApprovalRequestEventSchema.safeParse({
 				type: "control",
 				subtype: "done",
+				requestId: "req-1",
 				approvalId: "approval-1",
 				code: "tool",
 				command: "approve",
@@ -157,6 +174,7 @@ describe("CLI types", () => {
 			const result = rooCliApprovalRequestEventSchema.safeParse({
 				type: "control",
 				subtype: "approval_request",
+				requestId: "req-1",
 				approvalId: "approval-5",
 				code: "command",
 				command: "approve",

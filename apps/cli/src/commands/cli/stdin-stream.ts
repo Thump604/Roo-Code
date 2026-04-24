@@ -63,10 +63,21 @@ export function parseStdinStreamCommand(line: string, lineNumber: number): Stdin
 	const command = commandRaw as StdinStreamCommandName
 	const requestId = requestIdRaw.trim()
 
-	// Parse optional approvalId for approval-related commands
+	// Parse optional approvalId for approval-related commands.
+	// Absent field → undefined (legacy path). Present but malformed → error (fail closed).
 	const approvalIdRaw = parsed.approvalId
-	const approvalId =
-		typeof approvalIdRaw === "string" && approvalIdRaw.trim().length > 0 ? approvalIdRaw.trim() : undefined
+	let approvalId: string | undefined
+
+	if (approvalIdRaw === undefined) {
+		// Field not present in the JSON — legitimate legacy client
+		approvalId = undefined
+	} else if (typeof approvalIdRaw === "string" && approvalIdRaw.trim().length > 0) {
+		approvalId = approvalIdRaw.trim()
+	} else {
+		throw new Error(
+			`stdin command line ${lineNumber}: "${command}" approvalId must be a non-empty string when provided`,
+		)
+	}
 
 	// respond command requires a text field
 	if (command === "respond") {
