@@ -170,6 +170,19 @@ describe("loadHooksConfig", () => {
 		expect(config.hooks[0]!.env).toEqual({ FOO: "bar" })
 		expect(config.hooks[0]!.enabled).toBe(false)
 	})
+
+	it("throws when env values are not strings", async () => {
+		const dir = await makeTempDir()
+		await fs.mkdir(path.join(dir, ".mesa"))
+		await fs.writeFile(
+			path.join(dir, ".mesa", "hooks.json"),
+			JSON.stringify({
+				hooks: [{ event: "before_tool", command: ["echo"], env: { PORT: 8080 } }],
+			}),
+		)
+
+		await expect(loadHooksConfig(dir)).rejects.toThrow("hooks[0].env.PORT must be a string")
+	})
 })
 
 // =============================================================================

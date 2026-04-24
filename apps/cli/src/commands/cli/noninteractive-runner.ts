@@ -269,8 +269,12 @@ export async function runNonInteractiveCliSession({
 
 		// Record task start in index AFTER launch succeeds.
 		// Uses a generated label — never raw prompt text.
+		// setActiveTaskId is called synchronously so that updateStatus
+		// (fired by onTaskCompleted) can find the task even if the async
+		// upsert write hasn't completed yet.
 		if (prompt) {
 			const taskId = requestedCreateSessionId || `task-${Date.now()}`
+			taskIndex.setActiveTaskId(taskId)
 			void taskIndex
 				.upsert({
 					taskId,

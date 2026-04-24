@@ -87,12 +87,23 @@ function validateHooksConfig(data: unknown, filePath: string): HooksConfig {
 			throw new Error(`hooks[${i}].command must be a non-empty string array at ${filePath}`)
 		}
 
+		let env: Record<string, string> | undefined
+		if (typeof h.env === "object" && h.env !== null) {
+			const raw = h.env as Record<string, unknown>
+			for (const [key, val] of Object.entries(raw)) {
+				if (typeof val !== "string") {
+					throw new Error(`hooks[${i}].env.${key} must be a string at ${filePath}`)
+				}
+			}
+			env = raw as Record<string, string>
+		}
+
 		hooks.push({
 			event: h.event as HookDefinition["event"],
 			command: h.command as string[],
 			timeoutMs: typeof h.timeoutMs === "number" ? h.timeoutMs : undefined,
 			cwd: typeof h.cwd === "string" ? h.cwd : undefined,
-			env: typeof h.env === "object" && h.env !== null ? (h.env as Record<string, string>) : undefined,
+			env,
 			enabled: typeof h.enabled === "boolean" ? h.enabled : undefined,
 		})
 	}

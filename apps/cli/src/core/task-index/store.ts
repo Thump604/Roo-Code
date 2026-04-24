@@ -43,6 +43,15 @@ export class TaskIndex {
 	}
 
 	/**
+	 * Set the active task ID synchronously. Call this before a fire-and-forget
+	 * upsert so that updateStatus can find the task even if the upsert's async
+	 * write hasn't completed yet.
+	 */
+	setActiveTaskId(taskId: string): void {
+		this.activeTaskId = taskId
+	}
+
+	/**
 	 * Read the index from disk. Returns empty index on missing or corrupt file.
 	 */
 	async read(): Promise<TaskIndexFile> {
