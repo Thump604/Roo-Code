@@ -1,83 +1,150 @@
-# Mesa Code Public Roadmap Draft
+# Mesa Code Roadmap
 
-Mesa Code is a local-first coding agent CLI/TUI forked from Roo Code. This
-roadmap is intentionally high level. Internal operator notes, private runtime
-qualification details, and machine-specific control-plane plans do not belong
-in this repository.
+Mesa Code is a local/private-first coding agent CLI and TUI forked from Roo
+Code. The roadmap is sequenced by practical user value: make local models work
+reliably, keep the terminal workflow clean, then add larger operator surfaces.
 
-## 1. CLI/TUI Core
+Detailed implementation notes, environment-specific runtime contracts, and
+launch-planning notes do not belong in this public roadmap.
 
-Build one shared session engine for command-line, print, stdin-stream, and TUI
-flows.
+## 1. Local Endpoint Reliability
 
-- One session event contract
-- Shared tool approval semantics
-- Shared cancellation and resume behavior
-- Renderer-specific output only where necessary
-- PTY smoke tests for interactive terminal paths
-
-The CLI should stay small by default, closer to Pi's explicit tool surface than
-to a giant always-on agent shell. Richer operator features should be layered on
-deliberately, not forced into the base prompt and tool loop.
-
-## 2. Local Runtime Support
-
-Make local runtime use predictable and explicit.
+The first product promise is simple: if a user points Mesa at a local or
+self-hosted model server, it should be obvious what is running and whether it is
+usable.
 
 - OpenAI-compatible local endpoint support
 - Anthropic-compatible local endpoint support
 - `vllm-mlx` support
 - `llama.cpp` support after qualification
-- fail-closed behavior for unqualified runtime features
-- clear doctor and readiness output
+- `/v1/models` discovery where available
+- explicit model/profile selection
+- no silent fallback to the wrong model
+- model switching from both CLI and TUI through the same readiness contract
 - real cancellation for local OpenAI-compatible and Anthropic-compatible
   streams
-- no fake controls: if a runtime feature is not actually qualified, the UI and
-  CLI should say so
+- clear `doctor` and readiness output
+- fail-closed behavior for unqualified runtime features
 
-## 3. Model Selection And Setup
+No fake controls: if a runtime feature is not actually qualified, the UI and CLI
+should say so.
 
-Make model selection understandable without requiring users to become runtime
-operators.
+## 2. Shared CLI/TUI Session Core
 
-- explicit model/profile selection
-- local model discovery
-- storage planning
-- future model acquisition flows
-- no silent fallback to the wrong model
-- model switching from both command-line and TUI surfaces through the same
-  readiness contract
-- model-class capability profiles for reasoning, tool use, vision, and context
-  behavior
+Command-line, print, stdin-stream, and TUI flows should be different renderers
+over the same session engine, not separate products with divergent behavior.
 
-## 4. Observability
+- one session event contract
+- shared prompt submission path
+- shared tool approval semantics
+- shared cancellation, resume, and fork behavior
+- stable text, JSON, and stream-json output contracts
+- PTY smoke tests for interactive terminal paths
+- same-type consecutive approval coverage
+- renderer-specific output only where necessary
 
-Normalize runtime signals without hiding where they come from.
+The default tool surface should stay small and legible. Richer operator
+features should be layered on deliberately, not forced into every prompt.
 
-- health and readiness checks
-- metrics adapters for local model engines
-- OpenTelemetry-aligned naming where practical
-- useful command-line diagnostics
-- no fake status indicators
-- session/tool statistics that make prompt growth, tool count, and context
-  pressure visible
-- structured stream output suitable for automation and CI
+## 3. Local Code Indexing And Search
 
-## 5. Privacy And Control
+Code indexing is a high-value local workflow and should be private by default.
 
-Keep local/private behavior as the default product posture.
+- local/private semantic indexing
+- provider-agnostic embedding configuration
+- local embedding storage
+- incremental re-indexing with stale-vector cleanup
+- fast code search usable from CLI, TUI, and automation
+- workspace-aware indexing for multi-root projects
+- no OpenAI-only or cloud-only indexing path
 
-- no required cloud account for local workflows
-- no telemetry by default
-- explicit provider selection
-- clear approval controls for tools and shell commands
-- private configuration stored locally
+Indexing should help the model retrieve relevant project context without
+dumping large, unrelated environment details into every prompt.
+
+## 4. Tool, MCP, And Prompt Budget Control
+
+Mesa should treat tool exposure as a security and context-budget problem, not a
+checkbox.
+
+- explicit tool profiles, including read-only and pure/local-debug profiles
+- per-mode allowed/blocked tool lists
+- per-mode allowed/blocked MCP server lists
+- prompt/tool schema budget reporting
+- oversized tool and MCP outputs stored as local artifacts with previews, caps,
+  and stable references
 - shell-command approval based on a real command parser, not fragile string
   splitting
-- oversized tool and MCP outputs handled as local artifacts with previews,
-  caps, and clear references
+- URL/external content intake with explicit fetch policy, caps, provenance, and
+  offline behavior
 
-## 6. Mesa Code Rename And Migration
+The CLI should not dump every configured tool schema into context just because a
+server exists.
+
+## 5. Model-Class Capability Profiles
+
+Provider and model behavior should be normalized through explicit capability
+profiles instead of scattered one-off hacks.
+
+- reasoning extraction and rendering
+- reasoning tag stripping where needed
+- tool-call compatibility profiles
+- vision/image transport differences
+- context-window and token-budget behavior
+- model-specific parameter policy
+- capability-aware model picker
+
+This is the foundation for supporting local Qwen, GLM/Z.ai, Ollama,
+OpenAI-compatible servers, Anthropic-compatible servers, and future models
+without turning every provider into a special case.
+
+## 6. Observability And Diagnostics
+
+Users should be able to understand what happened without digging through
+private logs or guessing from a frozen UI.
+
+- `doctor` and `status --json`
+- structured local logs
+- structured session traces
+- metrics adapters for local model engines
+- OpenTelemetry-aligned naming where practical
+- session/tool statistics for prompt growth, tool count, context pressure, and
+  output artifacts
+- no secret leakage in diagnostics by default
+- no fake status indicators
+
+Telemetry, when added, should be local/private by default and should not replace
+the metrics emitted by the runtime engines themselves.
+
+## 7. Session Portability And Recovery
+
+Long coding tasks need reliable continuity.
+
+- session resume, fork, import, and export
+- checkpoint/restore for local workspace changes
+- final diff review
+- task-start rollback
+- workspace identity that behaves correctly across multiple terminals and
+  project roots
+- clean behavior after failed edits, provider errors, cancellation, or terminal
+  restarts
+
+## 8. Operator Surfaces
+
+Operator surfaces come after the local CLI/TUI core is solid.
+
+- `serve` and `attach`
+- headless automation mode
+- JSON log streaming
+- local stats view
+- provider/model management
+- plugin/skill management with readiness checks
+- security audit/fix commands for local config, permissions, and secrets
+- remote/session relay only after local state contracts are strong
+
+These should remain bounded and testable. Mesa should not become a giant
+always-on automation daemon before it is an excellent local coding CLI.
+
+## 9. Mesa Code Rename And Migration
 
 Move from the Roo Code fork identity to Mesa Code without breaking early users.
 
@@ -85,22 +152,10 @@ Move from the Roo Code fork identity to Mesa Code without breaking early users.
 - retain a `roo` compatibility alias during migration
 - add the `mesa` CLI command
 - rename public package and install docs in stages
-- avoid unnecessary internal namespace churn until the CLI surface is stable
-
-## 7. Migration From Roo Code
-
-Preserve useful migration paths without staying trapped in the old product
-shape.
-
-- import useful local settings where possible
+- keep useful local settings import paths
 - document behavior differences
-- keep compatibility where it helps users
 - remove cloud/auth assumptions from the CLI happy path
-
-High-value Roo backlog items will be evaluated through the Mesa lens: keep
-local endpoint support, cancellation, command approval correctness, model
-selection, checkpoint/restore, and MCP/tool-output controls; reject cloud-auth
-work as a default-path requirement.
+- avoid unnecessary internal namespace churn until the CLI surface is stable
 
 ## Not First
 
@@ -108,5 +163,7 @@ These are intentionally not the first priority:
 
 - full VS Code extension parity
 - hosted routing features
-- cloud account flows
-- broad marketplace packaging before the CLI is stable
+- required cloud account flows
+- broad marketplace packaging before permission and provenance contracts are
+  stable
+- messaging/channel sprawl before the coding workflow is strong

@@ -14,12 +14,14 @@ compatibility alias during migration.
 
 ## Current Focus
 
-- shared CLI/TUI session controller
-- stable text, JSON, and stream output contracts
-- local/self-hosted endpoint support
-- explicit tool approval behavior
+- local/self-hosted endpoint support with explicit model discovery
+- shared CLI/TUI session controller and approval contract
+- stable text, JSON, and stream-json output contracts
+- real cancellation, resume, and same-type approval behavior across modes
+- local/private code indexing and search
+- explicit tool and MCP scope control
 - PTY smoke tests for terminal flows
-- local runtime doctor and readiness checks
+- local runtime `doctor`, readiness, and status checks
 
 ## Development
 
@@ -57,9 +59,16 @@ Target public command shape:
 ```bash
 mesa use fast-qwen
 mesa doctor
+mesa status --json
+mesa models
 mesa run task.md --json
+mesa run task.md --output-format stream-json
 mesa tui
 ```
+
+Future operator surfaces such as `serve`, `attach`, logs, stats, plugin/skill
+management, and remote/session relay should build on the same session/runtime
+contracts instead of creating a second behavior model.
 
 ## Smoke Tests
 
