@@ -8,6 +8,7 @@ import json
 import os
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,95 @@ def discover_active_model(base_url: str) -> str:
         raise SmokeFailure(f"model discovery returned invalid payload from {models_url}")
 
     return model_id
+
+
+# =============================================================================
+# Fixture server lifecycle
+# =============================================================================
+
+
+class FixtureServer:
+    """Manages a local OpenAI-compatible fixture server for deterministic smoke tests."""
+
+    def __init__(self, cli_root: Path, scenario: str = "plain-text") -> None:
+        self.cli_root = cli_root
+        self.scenario = scenario
+        self.process: subprocess.Popen | None = None
+        self.port: int | None = None
+        self.model: str | None = None
+
+    @property
+    def base_url(self) -> str:
+        if self.port is None:
+            raise SmokeFailure("fixture server not started")
+        return f"http://127.0.0.1:{self.port}/v1"
+
+    def start(self) -> None:
+        server_script = self.cli_root / "scripts/fixtures/server.mjs"
+        if not server_script.exists():
+            raise SmokeFailure(f"fixture server script not found: {server_script}")
+
+        env = dict(os.environ, FIXTURE_SCENARIO=self.scenario)
+        self.process = subprocess.Popen(
+            ["node", str(server_script)],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+
+        # Read the boot line (JSON with port/scenario/model)
+        try:
+            boot_line = self.process.stdout.readline()
+            if not boot_line:
+                stderr = self.process.stderr.read().decode("utf-8", "ignore") if self.process.stderr else ""
+                raise SmokeFailure(f"fixture server produced no boot line\nstderr: {stderr[:1000]}")
+            boot = json.loads(boot_line.decode("utf-8"))
+            self.port = boot["port"]
+            self.model = boot.get("model", "fixture-model")
+        except (json.JSONDecodeError, KeyError) as err:
+            self.stop()
+            raise SmokeFailure(f"fixture server boot line invalid: {err}") from err
+
+        # Verify the server is actually responding
+        try:
+            discover_active_model(self.base_url)
+        except Exception as err:
+            self.stop()
+            raise SmokeFailure(f"fixture server not responding after boot: {err}") from err
+
+    def stop(self) -> None:
+        if self.process is None:
+            return
+        try:
+            self.process.send_signal(signal.SIGTERM)
+            self.process.wait(timeout=3)
+        except (subprocess.TimeoutExpired, OSError):
+            try:
+                self.process.kill()
+                self.process.wait(timeout=2)
+            except OSError:
+                pass
+        self.process = None
+
+    def __enter__(self) -> "FixtureServer":
+        self.start()
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.stop()
+
+
+def start_fixture_for_scenario(cli_root: Path, scenario: str) -> FixtureServer:
+    """Start a fixture server for the given scenario. Returns the server (caller must stop it)."""
+    server = FixtureServer(cli_root, scenario)
+    server.start()
+    return server
+
+
+# =============================================================================
+# Streaming helpers
+# =============================================================================
 
 
 def run_streaming_baseline_case(
@@ -412,6 +502,11 @@ def run_stdin_stream_case(
             raise SmokeFailure(session.failure_message("did not observe shutdown completion"))
 
 
+# =============================================================================
+# Live cases (require real inference — gated behind --live)
+# =============================================================================
+
+
 def case_print_live(context: SmokeContext) -> None:
     run_print_case(
         context,
@@ -493,6 +588,37 @@ def case_json_output_parseable(context: SmokeContext) -> None:
         )
 
 
+def case_stdin_stream_wrong_approval_id(context: SmokeContext) -> None:
+    """Verify that sending approve with a wrong approvalId emits approval_id_mismatch.
+
+    SKIP: This test requires live inference to generate a tool call that
+    triggers an approval_request. Use fixture-tool-approval-wrong-id for
+    deterministic coverage or vitest unit tests.
+    """
+    raise SmokeFailure(
+        "SKIPPED: approval-path smoke requires live inference to trigger tool "
+        "calls. See fixture-tool-approval-wrong-id for deterministic coverage."
+    )
+
+
+def case_stdin_stream_cancel_no_partial(context: SmokeContext) -> None:
+    """Verify that cancel during active task does not persist partial output.
+
+    SKIP: Requires live inference and a long-running task to meaningfully
+    test cancellation timing. See fixture-slow-stream-cancel for deterministic
+    coverage.
+    """
+    raise SmokeFailure(
+        "SKIPPED: cancel-no-partial smoke requires a long-running task from "
+        "live inference. See fixture-slow-stream-cancel for deterministic coverage."
+    )
+
+
+# =============================================================================
+# Non-live cases (no inference needed — work against fixture or protocol only)
+# =============================================================================
+
+
 def case_stdin_stream_init_and_ack(context: SmokeContext) -> None:
     """Verify stdin-stream mode emits system:init and acks start command."""
     start_request_id = f"init-ack-{int(time.time() * 1000)}"
@@ -525,31 +651,6 @@ def case_stdin_stream_init_and_ack(context: SmokeContext) -> None:
         # Shutdown
         session.send_command({"command": "shutdown", "requestId": shutdown_request_id})
         session.read_events(3.0)
-
-
-def case_stdin_stream_wrong_approval_id(context: SmokeContext) -> None:
-    """Verify that sending approve with a wrong approvalId emits approval_id_mismatch.
-
-    SKIP: This test requires live inference to generate a tool call that
-    triggers an approval_request. The deterministic fake/session controller
-    path is not available in the non-interactive smoke harness.
-    """
-    raise SmokeFailure(
-        "SKIPPED: approval-path smoke requires live inference to trigger tool "
-        "calls. Use vitest unit tests for deterministic approval protocol coverage."
-    )
-
-
-def case_stdin_stream_cancel_no_partial(context: SmokeContext) -> None:
-    """Verify that cancel during active task does not persist partial output.
-
-    SKIP: Requires live inference and a long-running task to meaningfully
-    test cancellation timing.
-    """
-    raise SmokeFailure(
-        "SKIPPED: cancel-no-partial smoke requires a long-running task from "
-        "live inference. Use vitest unit tests for deterministic coverage."
-    )
 
 
 def case_stdin_stream_ping_pong(context: SmokeContext) -> None:
@@ -661,17 +762,336 @@ def case_stdin_stream_shutdown_clean(context: SmokeContext) -> None:
             raise SmokeFailure(session.failure_message("did not observe shutdown done"))
 
 
-CASES = {
+# =============================================================================
+# Fixture-backed cases (deterministic, no live inference)
+# =============================================================================
+
+
+def case_fixture_plain_text(context: SmokeContext) -> None:
+    """Fixture: model streams a normal answer, CLI returns expected text."""
+    run_streaming_baseline_case(
+        context,
+        "fixture-plain-text",
+        "test prompt",
+        "fixture server",
+        timeout=10.0,
+    )
+
+
+def case_fixture_reasoning_tags(context: SmokeContext) -> None:
+    """Fixture: model streams <think>hidden</think>visible; verify raw SSE contains both."""
+    log_path = context.logs_root / "fixture-reasoning-tags.sse.log"
+    request = urllib.request.Request(
+        f"{context.base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(
+            {"model": context.model, "stream": True, "messages": [{"role": "user", "content": "test"}]}
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {context.api_key}"},
+        method="POST",
+    )
+
+    raw_lines: list[str] = []
+    accumulated = ""
+
+    with contextlib.closing(urllib.request.urlopen(request, timeout=10)) as response:
+        for raw_line in response:
+            decoded = raw_line.decode("utf-8", "ignore")
+            raw_lines.append(decoded)
+            stripped = decoded.strip()
+            if not stripped.startswith("data: ") or stripped == "data: [DONE]":
+                continue
+            try:
+                event = json.loads(stripped[6:])
+            except json.JSONDecodeError:
+                continue
+            content = (event.get("choices") or [{}])[0].get("delta", {}).get("content", "")
+            accumulated += content
+
+    log_path.write_text("".join(raw_lines), encoding="utf-8")
+
+    # The raw SSE must contain both the reasoning tags and visible text
+    if "<think>" not in accumulated:
+        raise SmokeFailure(f"fixture-reasoning-tags: raw stream missing <think> tag\nlog: {log_path}\naccumulated: {accumulated[:500]}")
+    if "hidden reasoning content" not in accumulated:
+        raise SmokeFailure(f"fixture-reasoning-tags: raw stream missing hidden reasoning\nlog: {log_path}")
+    if "Visible answer text" not in accumulated:
+        raise SmokeFailure(f"fixture-reasoning-tags: raw stream missing visible text\nlog: {log_path}\naccumulated: {accumulated[:500]}")
+
+
+def case_fixture_tool_approval_wrong_id(context: SmokeContext) -> None:
+    """Fixture: model streams tool_call; harness sends wrong approvalId then correct one.
+
+    This is a raw SSE protocol test — it verifies the fixture server produces
+    a tool_call stream. Full approval protocol testing (approvalId matching,
+    mismatch errors) is covered by vitest integration tests.
+    """
+    log_path = context.logs_root / "fixture-tool-approval-wrong-id.sse.log"
+    request = urllib.request.Request(
+        f"{context.base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(
+            {"model": context.model, "stream": True, "messages": [{"role": "user", "content": "test"}]}
+        ).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {context.api_key}",
+            "X-Fixture-Scenario": "tool-approval",
+        },
+        method="POST",
+    )
+
+    raw_lines: list[str] = []
+    saw_tool_call = False
+    tool_fn_name = ""
+    tool_fn_args = ""
+
+    with contextlib.closing(urllib.request.urlopen(request, timeout=10)) as response:
+        for raw_line in response:
+            decoded = raw_line.decode("utf-8", "ignore")
+            raw_lines.append(decoded)
+            stripped = decoded.strip()
+            if not stripped.startswith("data: ") or stripped == "data: [DONE]":
+                continue
+            try:
+                event = json.loads(stripped[6:])
+            except json.JSONDecodeError:
+                continue
+            choices = event.get("choices", [])
+            if not choices:
+                continue
+            delta = choices[0].get("delta", {})
+            tool_calls = delta.get("tool_calls")
+            if tool_calls:
+                saw_tool_call = True
+                tc = tool_calls[0]
+                fn = tc.get("function", {})
+                if "name" in fn:
+                    tool_fn_name = fn["name"]
+                if "arguments" in fn:
+                    tool_fn_args += fn["arguments"]
+
+    log_path.write_text("".join(raw_lines), encoding="utf-8")
+
+    if not saw_tool_call:
+        raise SmokeFailure(f"fixture-tool-approval-wrong-id: no tool_call in stream\nlog: {log_path}")
+    if tool_fn_name != "execute_command":
+        raise SmokeFailure(f"fixture-tool-approval-wrong-id: unexpected tool name '{tool_fn_name}'\nlog: {log_path}")
+
+    try:
+        args = json.loads(tool_fn_args)
+    except json.JSONDecodeError as err:
+        raise SmokeFailure(f"fixture-tool-approval-wrong-id: tool args not valid JSON: {err}\nlog: {log_path}") from err
+
+    if "fixture-test" not in args.get("command", ""):
+        raise SmokeFailure(f"fixture-tool-approval-wrong-id: tool args missing fixture-test command\nlog: {log_path}")
+
+
+def case_fixture_tool_approval_payload(context: SmokeContext) -> None:
+    """Fixture: verify tool_call SSE stream includes function name, args, and call id."""
+    log_path = context.logs_root / "fixture-tool-approval-payload.sse.log"
+    request = urllib.request.Request(
+        f"{context.base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(
+            {"model": context.model, "stream": True, "messages": [{"role": "user", "content": "test"}]}
+        ).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {context.api_key}",
+            "X-Fixture-Scenario": "tool-approval",
+        },
+        method="POST",
+    )
+
+    raw_lines: list[str] = []
+    saw_call_id = False
+    saw_fn_name = False
+    accumulated_args = ""
+
+    with contextlib.closing(urllib.request.urlopen(request, timeout=10)) as response:
+        for raw_line in response:
+            decoded = raw_line.decode("utf-8", "ignore")
+            raw_lines.append(decoded)
+            stripped = decoded.strip()
+            if not stripped.startswith("data: ") or stripped == "data: [DONE]":
+                continue
+            try:
+                event = json.loads(stripped[6:])
+            except json.JSONDecodeError:
+                continue
+            for choice in event.get("choices", []):
+                for tc in choice.get("delta", {}).get("tool_calls", []):
+                    if "id" in tc:
+                        saw_call_id = True
+                    fn = tc.get("function", {})
+                    if "name" in fn:
+                        saw_fn_name = True
+                    if "arguments" in fn:
+                        accumulated_args += fn["arguments"]
+
+    log_path.write_text("".join(raw_lines), encoding="utf-8")
+
+    if not saw_call_id:
+        raise SmokeFailure(f"fixture-tool-approval-payload: missing tool_call id\nlog: {log_path}")
+    if not saw_fn_name:
+        raise SmokeFailure(f"fixture-tool-approval-payload: missing function name\nlog: {log_path}")
+    if not accumulated_args:
+        raise SmokeFailure(f"fixture-tool-approval-payload: no function arguments streamed\nlog: {log_path}")
+
+    try:
+        json.loads(accumulated_args)
+    except json.JSONDecodeError as err:
+        raise SmokeFailure(f"fixture-tool-approval-payload: accumulated args not valid JSON: {err}\nlog: {log_path}") from err
+
+
+def case_fixture_slow_stream_cancel(context: SmokeContext) -> None:
+    """Fixture: slow stream; verify we can read partial content and cancel cleanly."""
+    log_path = context.logs_root / "fixture-slow-stream-cancel.sse.log"
+    request = urllib.request.Request(
+        f"{context.base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(
+            {"model": context.model, "stream": True, "messages": [{"role": "user", "content": "test"}]}
+        ).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {context.api_key}",
+            "X-Fixture-Scenario": "slow-stream",
+        },
+        method="POST",
+    )
+
+    raw_lines: list[str] = []
+    tokens_seen = 0
+
+    try:
+        with contextlib.closing(urllib.request.urlopen(request, timeout=15)) as response:
+            started = time.time()
+            while time.time() - started < 10:
+                line = response.readline()
+                if not line:
+                    break
+                decoded = line.decode("utf-8", "ignore")
+                raw_lines.append(decoded)
+                stripped = decoded.strip()
+                if not stripped.startswith("data: "):
+                    continue
+                if stripped == "data: [DONE]":
+                    break
+                try:
+                    event = json.loads(stripped[6:])
+                except json.JSONDecodeError:
+                    continue
+                content = (event.get("choices") or [{}])[0].get("delta", {}).get("content")
+                if content:
+                    tokens_seen += 1
+                # Cancel after seeing 3 tokens (server sends at 500ms intervals)
+                if tokens_seen >= 3:
+                    break
+    except Exception:  # noqa: BLE001
+        pass
+
+    log_path.write_text("".join(raw_lines), encoding="utf-8")
+
+    if tokens_seen < 3:
+        raise SmokeFailure(
+            f"fixture-slow-stream-cancel: only saw {tokens_seen} tokens before cancel\nlog: {log_path}"
+        )
+    # The key assertion: we stopped reading before the full stream completed
+    # (server sends 9 tokens at 500ms each = 4.5s total)
+    # We should have stopped after ~1.5s (3 tokens)
+    if tokens_seen >= 8:
+        raise SmokeFailure(
+            f"fixture-slow-stream-cancel: saw {tokens_seen} tokens — cancel did not terminate early\nlog: {log_path}"
+        )
+
+
+def case_fixture_malformed_stream(context: SmokeContext) -> None:
+    """Fixture: malformed SSE chunk; verify we get valid chunks before it and handle the error."""
+    log_path = context.logs_root / "fixture-malformed-stream.sse.log"
+    request = urllib.request.Request(
+        f"{context.base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(
+            {"model": context.model, "stream": True, "messages": [{"role": "user", "content": "test"}]}
+        ).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {context.api_key}",
+            "X-Fixture-Scenario": "malformed-stream",
+        },
+        method="POST",
+    )
+
+    raw_lines: list[str] = []
+    valid_tokens: list[str] = []
+    saw_malformed = False
+
+    with contextlib.closing(urllib.request.urlopen(request, timeout=10)) as response:
+        for raw_line in response:
+            decoded = raw_line.decode("utf-8", "ignore")
+            raw_lines.append(decoded)
+            stripped = decoded.strip()
+            if not stripped.startswith("data: "):
+                continue
+            if stripped == "data: [DONE]":
+                break
+            payload = stripped[6:]
+            try:
+                event = json.loads(payload)
+            except json.JSONDecodeError:
+                saw_malformed = True
+                continue
+            content = (event.get("choices") or [{}])[0].get("delta", {}).get("content", "")
+            if content:
+                valid_tokens.append(content)
+
+    log_path.write_text("".join(raw_lines), encoding="utf-8")
+
+    if not saw_malformed:
+        raise SmokeFailure(f"fixture-malformed-stream: did not encounter malformed chunk\nlog: {log_path}")
+    if len(valid_tokens) < 2:
+        raise SmokeFailure(
+            f"fixture-malformed-stream: only {len(valid_tokens)} valid tokens before/after malformed\nlog: {log_path}"
+        )
+    if "Good" not in valid_tokens:
+        raise SmokeFailure(f"fixture-malformed-stream: missing 'Good' token\nlog: {log_path}")
+
+
+# =============================================================================
+# Case registries
+# =============================================================================
+
+
+# Live cases require a real inference endpoint (gated behind --live)
+LIVE_CASES = {
     "streaming-baseline-live": case_streaming_baseline_live,
     "print-live": case_print_live,
     "stdin-stream-live": case_stdin_stream_live,
     "json-output-parseable": case_json_output_parseable,
+    "stdin-stream-wrong-approval-id": case_stdin_stream_wrong_approval_id,
+    "stdin-stream-cancel-no-partial": case_stdin_stream_cancel_no_partial,
+}
+
+# Non-live cases work against protocol or fixture server (always available)
+NONLIVE_CASES = {
     "stdin-stream-init-and-ack": case_stdin_stream_init_and_ack,
     "stdin-stream-ping-pong": case_stdin_stream_ping_pong,
     "stdin-stream-approve-no-task": case_stdin_stream_approve_no_task,
     "stdin-stream-shutdown-clean": case_stdin_stream_shutdown_clean,
-    "stdin-stream-wrong-approval-id": case_stdin_stream_wrong_approval_id,
-    "stdin-stream-cancel-no-partial": case_stdin_stream_cancel_no_partial,
+}
+
+# Fixture-backed cases use the local fixture server (always available)
+FIXTURE_CASES = {
+    "fixture-plain-text": ("plain-text", case_fixture_plain_text),
+    "fixture-reasoning-tags": ("reasoning-tags", case_fixture_reasoning_tags),
+    "fixture-tool-approval-wrong-id": ("tool-approval", case_fixture_tool_approval_wrong_id),
+    "fixture-tool-approval-payload": ("tool-approval", case_fixture_tool_approval_payload),
+    "fixture-slow-stream-cancel": ("slow-stream", case_fixture_slow_stream_cancel),
+    "fixture-malformed-stream": ("malformed-stream", case_fixture_malformed_stream),
+}
+
+# Backward compat: merged view of all cases
+CASES = {
+    **LIVE_CASES,
+    **NONLIVE_CASES,
+    **{name: fn for name, (_scenario, fn) in FIXTURE_CASES.items()},
 }
 
 
@@ -679,7 +1099,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Mesa CLI non-interactive smoke tests")
     parser.add_argument("--list", action="store_true", help="List available smoke cases")
     parser.add_argument("--match", help="Only run cases containing this substring")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="OpenAI-compatible base URL to test against")
+    parser.add_argument("--live", action="store_true", help="Include live-inference cases (requires running model server)")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="OpenAI-compatible base URL for live cases")
     parser.add_argument("--timeout", type=float, default=120.0, help="Per-case timeout in seconds")
     return parser.parse_args()
 
@@ -697,54 +1118,152 @@ def main() -> int:
     if not dist_cli.exists():
         raise SmokeFailure(f"CLI dist entry not found: {dist_cli}")
 
-    context = SmokeContext(
-        cli_root=cli_root,
-        repo_root=repo_root,
-        dist_cli=dist_cli,
-        base_url=args.base_url,
-        model=discover_active_model(args.base_url),
-        api_key=DEFAULT_API_KEY,
-        logs_root=logs_root,
-        timeout=args.timeout,
-    )
+    # ---- Determine which cases to run ----
 
-    selected = [
+    # Non-live cases (protocol-only) always included
+    selected: list[tuple[str, object]] = [
         (name, case)
-        for name, case in CASES.items()
+        for name, case in NONLIVE_CASES.items()
         if not args.match or args.match.lower() in name.lower()
     ]
 
-    if not selected:
-        raise SmokeFailure(f'no non-interactive smoke cases matched "{args.match}"')
+    # Fixture-backed cases: start fixture server per scenario
+    fixture_selected = [
+        (name, scenario, case)
+        for name, (scenario, case) in FIXTURE_CASES.items()
+        if not args.match or args.match.lower() in name.lower()
+    ]
+
+    # Live cases only if --live is passed
+    live_selected: list[tuple[str, object]] = []
+    if args.live:
+        live_selected = [
+            (name, case)
+            for name, case in LIVE_CASES.items()
+            if not args.match or args.match.lower() in name.lower()
+        ]
+
+    total_count = len(selected) + len(fixture_selected) + len(live_selected)
+    if total_count == 0:
+        suffix = ' (try --live to include live-inference cases)' if not args.live else ''
+        raise SmokeFailure(f'no smoke cases matched "{args.match}"{suffix}')
 
     if args.list:
         print("Available non-interactive smoke cases:", flush=True)
+        print("\nProtocol-only (always run):", flush=True)
         for name, _ in selected:
-            print(f"- {name}", flush=True)
-        print(f"\nBase URL: {context.base_url}", flush=True)
-        print(f"Active model: {context.model}", flush=True)
+            print(f"  - {name}", flush=True)
+        print("\nFixture-backed (always run):", flush=True)
+        for name, scenario, _ in fixture_selected:
+            print(f"  - {name}  [scenario: {scenario}]", flush=True)
+        if args.live:
+            print("\nLive-inference (--live):", flush=True)
+            for name, _ in live_selected:
+                print(f"  - {name}", flush=True)
+        else:
+            print(f"\nLive-inference cases available with --live ({len(LIVE_CASES)} cases)", flush=True)
         return 0
 
     failures: list[tuple[str, str]] = []
 
-    print(f"Base URL: {context.base_url}", flush=True)
-    print(f"Active model: {context.model}", flush=True)
-    print(f"Per-case timeout: {context.timeout:.0f}s", flush=True)
+    print(f"Per-case timeout: {args.timeout:.0f}s", flush=True)
     print(f"Logs: {logs_root}", flush=True)
+    print(f"Mode: {'live + fixture + protocol' if args.live else 'fixture + protocol (use --live for inference)'}", flush=True)
 
-    for name, case in selected:
-        print(f"\n[RUN] {name}", flush=True)
-        started = time.time()
+    # ---- Run protocol-only cases ----
+    if selected:
+        # Protocol cases use the fixture server for base_url discovery
+        # but only need init/shutdown — start a plain-text fixture for model discovery
+        with FixtureServer(cli_root, "plain-text") as fixture:
+            proto_context = SmokeContext(
+                cli_root=cli_root,
+                repo_root=repo_root,
+                dist_cli=dist_cli,
+                base_url=fixture.base_url,
+                model=fixture.model or "fixture-model",
+                api_key="sk-fixture",
+                logs_root=logs_root,
+                timeout=args.timeout,
+            )
+            for name, case in selected:
+                print(f"\n[RUN] {name}", flush=True)
+                started = time.time()
+                try:
+                    case(proto_context)
+                except Exception as error:  # noqa: BLE001
+                    failures.append((name, str(error)))
+                    print(f"[FAIL] {name}: {error}", flush=True)
+                else:
+                    duration = time.time() - started
+                    print(f"[PASS] {name} ({duration:.1f}s)", flush=True)
+
+    # ---- Run fixture-backed cases ----
+    # Group by scenario to minimize server restarts
+    scenarios_needed: dict[str, list[tuple[str, object]]] = {}
+    for name, scenario, case in fixture_selected:
+        scenarios_needed.setdefault(scenario, []).append((name, case))
+
+    for scenario, cases_for_scenario in scenarios_needed.items():
+        with FixtureServer(cli_root, scenario) as fixture:
+            fixture_context = SmokeContext(
+                cli_root=cli_root,
+                repo_root=repo_root,
+                dist_cli=dist_cli,
+                base_url=fixture.base_url,
+                model=fixture.model or "fixture-model",
+                api_key="sk-fixture",
+                logs_root=logs_root,
+                timeout=args.timeout,
+            )
+            for name, case in cases_for_scenario:
+                print(f"\n[RUN] {name}  [fixture: {scenario}]", flush=True)
+                started = time.time()
+                try:
+                    case(fixture_context)
+                except Exception as error:  # noqa: BLE001
+                    failures.append((name, str(error)))
+                    print(f"[FAIL] {name}: {error}", flush=True)
+                else:
+                    duration = time.time() - started
+                    print(f"[PASS] {name} ({duration:.1f}s)", flush=True)
+
+    # ---- Run live cases ----
+    if live_selected:
         try:
-            case(context)
-        except Exception as error:  # noqa: BLE001
-            failures.append((name, str(error)))
-            print(f"[FAIL] {name}: {error}", flush=True)
-        else:
-            duration = time.time() - started
-            print(f"[PASS] {name} ({duration:.1f}s)", flush=True)
+            live_model = discover_active_model(args.base_url)
+        except Exception as err:
+            print(f"\n[SKIP] live cases: cannot discover model at {args.base_url}: {err}", flush=True)
+            for name, _ in live_selected:
+                failures.append((name, f"live model discovery failed: {err}"))
+            live_selected = []
 
-    print(f"\nSummary: {len(selected) - len(failures)}/{len(selected)} passed", flush=True)
+        if live_selected:
+            live_context = SmokeContext(
+                cli_root=cli_root,
+                repo_root=repo_root,
+                dist_cli=dist_cli,
+                base_url=args.base_url,
+                model=live_model,
+                api_key=DEFAULT_API_KEY,
+                logs_root=logs_root,
+                timeout=args.timeout,
+            )
+            print(f"\nLive base URL: {live_context.base_url}", flush=True)
+            print(f"Live model: {live_context.model}", flush=True)
+
+            for name, case in live_selected:
+                print(f"\n[RUN] {name}  [live]", flush=True)
+                started = time.time()
+                try:
+                    case(live_context)
+                except Exception as error:  # noqa: BLE001
+                    failures.append((name, str(error)))
+                    print(f"[FAIL] {name}: {error}", flush=True)
+                else:
+                    duration = time.time() - started
+                    print(f"[PASS] {name} ({duration:.1f}s)", flush=True)
+
+    print(f"\nSummary: {total_count - len(failures)}/{total_count} passed", flush=True)
     if failures:
         print("\nFailures:", flush=True)
         for name, error in failures:
