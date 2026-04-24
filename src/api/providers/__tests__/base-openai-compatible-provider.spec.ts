@@ -545,4 +545,163 @@ describe("BaseOpenAiCompatibleProvider", () => {
 			expect(endChunks).toHaveLength(0)
 		})
 	})
+
+	describe("ModelAdapter integration", () => {
+		it("extracts reasoning via adapter from reasoning_content field", async () => {
+			mockCreate.mockImplementationOnce(() => {
+				return {
+					[Symbol.asyncIterator]: () => ({
+						next: vi
+							.fn()
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { reasoning_content: "Thinking step 1" } }] },
+							})
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { content: "The answer" } }] },
+							})
+							.mockResolvedValueOnce({ done: true }),
+					}),
+				}
+			})
+
+			const stream = handler.createMessage("system prompt", [])
+			const chunks = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			expect(chunks).toContainEqual({ type: "reasoning", text: "Thinking step 1" })
+			expect(chunks).toContainEqual({ type: "text", text: "The answer" })
+		})
+
+		it("extracts reasoning via adapter from reasoning field", async () => {
+			mockCreate.mockImplementationOnce(() => {
+				return {
+					[Symbol.asyncIterator]: () => ({
+						next: vi
+							.fn()
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { reasoning: "Step analysis" } }] },
+							})
+							.mockResolvedValueOnce({ done: true }),
+					}),
+				}
+			})
+
+			const stream = handler.createMessage("system prompt", [])
+			const chunks = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			expect(chunks).toContainEqual({ type: "reasoning", text: "Step analysis" })
+		})
+
+		it("strips <think> tags via adapter's shouldStripReasoningTags", async () => {
+			mockCreate.mockImplementationOnce(() => {
+				return {
+					[Symbol.asyncIterator]: () => ({
+						next: vi
+							.fn()
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { content: "<think>hidden reasoning</think>" } }] },
+							})
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { content: "visible text" } }] },
+							})
+							.mockResolvedValueOnce({ done: true }),
+					}),
+				}
+			})
+
+			const stream = handler.createMessage("system prompt", [])
+			const chunks = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			// <think> content should be reasoning, rest should be text
+			const reasoningChunks = chunks.filter((c) => c.type === "reasoning")
+			const textChunks = chunks.filter((c) => c.type === "text")
+			expect(reasoningChunks.length).toBeGreaterThan(0)
+			expect(textChunks).toContainEqual({ type: "text", text: "visible text" })
+		})
+
+		it("normal text without reasoning fields yields text only", async () => {
+			mockCreate.mockImplementationOnce(() => {
+				return {
+					[Symbol.asyncIterator]: () => ({
+						next: vi
+							.fn()
+							.mockResolvedValueOnce({
+								done: false,
+								value: { choices: [{ delta: { content: "Hello world" } }] },
+							})
+							.mockResolvedValueOnce({ done: true }),
+					}),
+				}
+			})
+
+			const stream = handler.createMessage("system prompt", [])
+			const chunks = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			expect(chunks).toEqual([{ type: "text", text: "Hello world" }])
+		})
+
+		it("tool_call_partial and tool_call_end behavior is not regressed", async () => {
+			mockCreate.mockImplementationOnce(() => {
+				return {
+					[Symbol.asyncIterator]: () => ({
+						next: vi
+							.fn()
+							.mockResolvedValueOnce({
+								done: false,
+								value: {
+									choices: [
+										{
+											delta: {
+												tool_calls: [
+													{
+														index: 0,
+														id: "call_adapter_test",
+														function: { name: "test_fn", arguments: '{"a":1}' },
+													},
+												],
+											},
+										},
+									],
+								},
+							})
+							.mockResolvedValueOnce({
+								done: false,
+								value: {
+									choices: [{ delta: {}, finish_reason: "tool_calls" }],
+								},
+							})
+							.mockResolvedValueOnce({ done: true }),
+					}),
+				}
+			})
+
+			const stream = handler.createMessage("system prompt", [])
+			const chunks = []
+			for await (const chunk of stream) {
+				chunks.push(chunk)
+			}
+
+			const partials = chunks.filter((c) => c.type === "tool_call_partial")
+			const ends = chunks.filter((c) => c.type === "tool_call_end")
+			expect(partials).toHaveLength(1)
+			expect(ends).toHaveLength(1)
+			expect(ends[0]).toEqual({ type: "tool_call_end", id: "call_adapter_test" })
+		})
+	})
 })

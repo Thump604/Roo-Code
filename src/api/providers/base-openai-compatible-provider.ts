@@ -7,6 +7,7 @@ import { type ApiHandlerOptions, getModelMaxOutputTokens } from "../../shared/ap
 import { TagMatcher } from "../../utils/tag-matcher"
 import { ApiStream, ApiStreamUsageChunk } from "../transform/stream"
 import { convertToOpenAiMessages } from "../transform/openai-format"
+import { createModelAdapter, type ModelAdapter } from "../adapters/model-adapter"
 
 import type { SingleCompletionHandler, ApiHandlerCreateMessageMetadata } from "../index"
 import { DEFAULT_HEADERS } from "./constants"
@@ -37,6 +38,9 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 
 	protected client: OpenAI
 
+	/** Model-class adapter for reasoning extraction and tag stripping. */
+	protected readonly adapter: ModelAdapter
+
 	constructor({
 		providerName,
 		baseURL,
@@ -54,6 +58,9 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 		this.defaultTemperature = defaultTemperature ?? 0
 
 		this.options = options
+		// All subclasses of BaseOpenAiCompatibleProvider are, by definition,
+		// OpenAI-compatible — use the matching adapter regardless of display name.
+		this.adapter = createModelAdapter("openai-compatible")
 
 		if (!this.options.apiKey) {
 			throw new Error("API key is required")
@@ -117,14 +124,20 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 	): ApiStream {
 		const stream = await this.createStream(systemPrompt, messages, metadata)
 
-		const matcher = new TagMatcher(
-			"think",
-			(chunk) =>
-				({
-					type: chunk.matched ? "reasoning" : "text",
-					text: chunk.data,
-				}) as const,
-		)
+		// Use the adapter to decide whether <think> tags should be extracted.
+		// When the adapter says to strip, TagMatcher splits them into reasoning
+		// vs visible text. Otherwise text passes through unchanged.
+		const stripTags = this.adapter.shouldStripReasoningTags()
+		const matcher = stripTags
+			? new TagMatcher(
+					"think",
+					(chunk) =>
+						({
+							type: chunk.matched ? "reasoning" : "text",
+							text: chunk.data,
+						}) as const,
+				)
+			: null
 
 		let lastUsage: OpenAI.CompletionUsage | undefined
 		const activeToolCallIds = new Set<string>()
@@ -142,20 +155,21 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 			const finishReason = chunk.choices?.[0]?.finish_reason
 
 			if (delta?.content) {
-				for (const processedChunk of matcher.update(delta.content)) {
-					yield processedChunk
+				if (matcher) {
+					for (const processedChunk of matcher.update(delta.content)) {
+						yield processedChunk
+					}
+				} else {
+					yield { type: "text", text: delta.content }
 				}
 			}
 
+			// Use the adapter to extract reasoning from dedicated fields
+			// (e.g., reasoning_content for DeepSeek R1, reasoning for others).
 			if (delta) {
-				for (const key of ["reasoning_content", "reasoning"] as const) {
-					if (key in delta) {
-						const reasoning_content = ((delta as any)[key] as string | undefined) || ""
-						if (reasoning_content?.trim()) {
-							yield { type: "reasoning", text: reasoning_content }
-						}
-						break
-					}
+				const extracted = this.adapter.extractReasoning(delta as Record<string, unknown>)
+				if (extracted && extracted.text.trim()) {
+					yield { type: "reasoning", text: extracted.text }
 				}
 			}
 
@@ -193,9 +207,11 @@ export abstract class BaseOpenAiCompatibleProvider<ModelName extends string>
 			yield this.processUsageMetrics(lastUsage, this.getModel().info)
 		}
 
-		// Process any remaining content
-		for (const processedChunk of matcher.final()) {
-			yield processedChunk
+		// Process any remaining content in the tag matcher
+		if (matcher) {
+			for (const processedChunk of matcher.final()) {
+				yield processedChunk
+			}
 		}
 	}
 

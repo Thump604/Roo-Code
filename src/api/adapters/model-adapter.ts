@@ -1,10 +1,9 @@
 /**
  * ModelAdapter — central capability boundary for model-class differences.
  *
- * STATUS: Scaffold only. This interface and the OpenAICompatibleAdapter are
- * not yet wired into any production provider. They exist as the target
- * contract for incremental migration — providers should adopt this boundary
- * one at a time rather than via a big-bang refactor.
+ * STATUS: Wired first into BaseOpenAiCompatibleProvider (reasoning extraction
+ * and <think> tag stripping). Broader provider migration pending — Anthropic,
+ * Gemini, and other provider families should adopt this boundary incrementally.
  *
  * Each model family (OpenAI-compatible, Anthropic, Gemini, DeepSeek R1, etc.)
  * handles reasoning, tool calls, and image transport differently. This interface
