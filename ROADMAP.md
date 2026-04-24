@@ -35,13 +35,22 @@ should say so.
 Command-line, print, stdin-stream, and TUI flows should be different renderers
 over the same session engine, not separate products with divergent behavior.
 
+Implemented:
+
 - one session event contract
 - shared prompt submission path
-- shared tool approval semantics
-- shared cancellation, resume, and fork behavior
+- shared tool approval semantics with typed `approvalId` enforcement
+- shared cancellation and resume behavior
 - stable text, JSON, and stream-json output contracts
-- PTY smoke tests for interactive terminal paths
+- PTY and non-interactive smoke tests for terminal paths
 - same-type consecutive approval coverage
+- NDJSON stdin control protocol with approval request/response lifecycle
+- reasoning tag extraction via shared ModelAdapter and TagMatcher
+- abort signal propagation to all OpenAI-SDK-based providers
+
+In progress:
+
+- task forking as a shared session primitive
 - renderer-specific output only where necessary
 
 The default tool surface should stay small and legible. Richer operator
@@ -144,11 +153,20 @@ server exists.
 Provider and model behavior should be normalized through explicit capability
 profiles instead of scattered one-off hacks.
 
+Implemented:
+
+- ModelAdapter boundary with explicit capabilities, image conversion,
+  reasoning extraction, and tag stripping policy
+- centralized reasoning stream processor (TagMatcher + extractReasoning)
+- abort signal wired into all OpenAI-SDK-based streaming providers
+- collision-safe MCP artifact IDs with path traversal prevention
+- oversized tool output stored as local artifacts with byte-safe previews
+
+In progress:
+
 - community-maintainable provider adapters
 - clear adapter contracts for OpenAI-compatible and Anthropic-compatible
   servers
-- reasoning extraction and rendering
-- reasoning tag stripping where needed
 - tool-call compatibility profiles
 - vision/image transport differences
 - context-window and token-budget behavior

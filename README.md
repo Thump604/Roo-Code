@@ -28,15 +28,17 @@ See [ROADMAP.md](ROADMAP.md) for the current public plan.
 - OpenAI-compatible and Anthropic-compatible local endpoint support
 - runtime readiness and model identity checks before claiming success
 - local model discovery instead of manual/stale model IDs
+- explicit approval protocol with typed `approvalId` targeting for automation
+- stable text, JSON, and NDJSON stream contracts for automation
 - local/private code indexing and semantic search
 - first-class local runtime and session observability
-- stable text, JSON, and stream contracts for automation
 - task history, task pinning, task forking, and task recovery as first-class
   workflow objects
 - hook points for mandatory constraints before and after tool/model actions
 - parallel task and sub-agent workflows without context-jump hacks
 - explicit user control over tools, approvals, model selection, MCP scope, and
   config
+- multi-provider ecosystem with normalized capability profiles
 - editor integration later, after the CLI core is solid
 
 ## Local Runtime Goals
