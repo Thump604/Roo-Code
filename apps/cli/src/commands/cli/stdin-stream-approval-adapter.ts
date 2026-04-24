@@ -23,11 +23,15 @@ import type {
 } from "@/agent/approval-adapter.js"
 import type { JsonEventEmitter } from "@/agent/json-event-emitter.js"
 
+/** Monotonic counter for stable approval IDs within a session. */
+let approvalCounter = 0
+
 export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 	private pending: {
 		resolve: (response: ApprovalResponse) => void
 		reject: (reason?: unknown) => void
 		request: ApprovalRequest
+		approvalId: string
 	} | null = null
 
 	constructor(
@@ -43,15 +47,21 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 		return this.pending?.request ?? null
 	}
 
+	get currentApprovalId(): string | null {
+		return this.pending?.approvalId ?? null
+	}
+
 	async handle(request: ApprovalRequest): Promise<ApprovalResponse> {
 		// Dispose any stale pending request
 		if (this.pending) {
 			this.dispose()
 		}
 
+		const approvalId = `approval-${++approvalCounter}`
+
 		return new Promise<ApprovalResponse>((resolve, reject) => {
-			this.pending = { resolve, reject, request }
-			this.emitApprovalRequest(request)
+			this.pending = { resolve, reject, request, approvalId }
+			this.emitApprovalRequest(request, approvalId)
 		})
 	}
 
@@ -134,12 +144,14 @@ export class StdinStreamApprovalAdapter implements ApprovalAdapter {
 	// Event emission
 	// =========================================================================
 
-	private emitApprovalRequest(request: ApprovalRequest): void {
+	private emitApprovalRequest(request: ApprovalRequest, approvalId: string): void {
 		this.emitter.emitRawEvent({
 			type: "control",
 			subtype: "approval_request",
+			approvalId,
 			taskId: this.taskIdProvider(),
 			content: summarizeApprovalRequest(request),
+			payload: request.message.text || undefined,
 			code: request.ask,
 			command: mapKindToCommand(request.kind),
 		})
@@ -210,7 +222,7 @@ function summarizeApprovalRequest(request: ApprovalRequest): string {
 		case "use_mcp_server": {
 			try {
 				const info = JSON.parse(text)
-				return `approve MCP: ${info.server_name || "unknown"}`
+				return `approve MCP: ${info.serverName || info.server_name || "unknown"}`
 			} catch {
 				return "approve MCP server"
 			}

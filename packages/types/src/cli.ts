@@ -128,7 +128,7 @@ export const rooCliEventTypeSchema = z.enum(rooCliEventTypes)
 
 export type RooCliEventType = z.infer<typeof rooCliEventTypeSchema>
 
-export const rooCliControlSubtypes = ["ack", "done", "error"] as const
+export const rooCliControlSubtypes = ["ack", "done", "error", "approval_request"] as const
 
 export const rooCliControlSubtypeSchema = z.enum(rooCliControlSubtypes)
 
