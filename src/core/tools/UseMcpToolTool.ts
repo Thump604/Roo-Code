@@ -7,7 +7,7 @@ import type { ToolUse } from "../../shared/tools"
 import { toolNamesMatch } from "../../utils/mcp-name"
 
 import { BaseTool, ToolCallbacks } from "./BaseTool"
-import { maybeTruncateToolOutput } from "./tool-output-artifacts"
+import { maybeTruncateToolOutput, generateMcpArtifactId } from "./tool-output-artifacts"
 
 interface UseMcpToolParams {
 	server_name: string
@@ -364,7 +364,7 @@ export class UseMcpToolTool extends BaseTool<"use_mcp_tool"> {
 		text: string,
 		executionId: string,
 	): Promise<{ preview: string; truncated: boolean }> {
-		const artifactId = `mcp-${executionId}.txt`
+		const artifactId = generateMcpArtifactId(executionId)
 		const globalStoragePath = task.providerRef.deref()?.context?.globalStorageUri?.fsPath
 		return maybeTruncateToolOutput(text, artifactId, task.taskId, globalStoragePath)
 	}

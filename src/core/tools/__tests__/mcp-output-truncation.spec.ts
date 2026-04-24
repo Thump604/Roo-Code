@@ -20,7 +20,7 @@ import * as os from "os"
 
 import { TERMINAL_PREVIEW_BYTES } from "@roo-code/types"
 
-import { maybeTruncateToolOutput } from "../tool-output-artifacts"
+import { maybeTruncateToolOutput, generateMcpArtifactId, readArtifact } from "../tool-output-artifacts"
 
 const threshold = TERMINAL_PREVIEW_BYTES["medium"] // 10KB
 
@@ -201,5 +201,81 @@ describe("ReadCommandOutputTool artifact_id validation", () => {
 	it("rejects IDs with special characters", () => {
 		expect(isValidArtifactId("cmd-123;rm -rf /.txt")).toBe(false)
 		expect(isValidArtifactId("mcp-$(whoami).txt")).toBe(false)
+	})
+
+	it("accepts counter-suffixed MCP artifact IDs", () => {
+		expect(isValidArtifactId("mcp-12345-0.txt")).toBe(true)
+		expect(isValidArtifactId("mcp-12345-42.txt")).toBe(true)
+	})
+})
+
+// =============================================================================
+// Artifact ID collision prevention
+// =============================================================================
+
+describe("generateMcpArtifactId — collision prevention", () => {
+	it("generates unique IDs for same executionId", () => {
+		const id1 = generateMcpArtifactId("same-ts")
+		const id2 = generateMcpArtifactId("same-ts")
+		expect(id1).not.toBe(id2)
+	})
+
+	it("produces IDs matching artifact_id validation pattern", () => {
+		const validPattern = /^(cmd|mcp)-[\w-]+\.txt$/
+		const id = generateMcpArtifactId("1706119234567")
+		expect(validPattern.test(id)).toBe(true)
+	})
+})
+
+// =============================================================================
+// readArtifact — offset/limit reads
+// =============================================================================
+
+describe("readArtifact — offset and limit reads", () => {
+	let tmpDir: string
+
+	beforeEach(async () => {
+		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-read-test-"))
+	})
+
+	afterEach(async () => {
+		await fs.rm(tmpDir, { recursive: true, force: true })
+	})
+
+	it("reads full artifact with default offset/limit", async () => {
+		const text = "Hello, artifact world!"
+		const artifactId = "mcp-read-full.txt"
+		await maybeTruncateToolOutput(text, artifactId, "task-rf", tmpDir)
+
+		// Text is under threshold so no truncation, but we manually wrote it
+		// for the passthrough case. Let's use a large text instead.
+		const largeText = "A".repeat(threshold + 500)
+		const largeId = "mcp-read-large.txt"
+		await maybeTruncateToolOutput(largeText, largeId, "task-rl", tmpDir)
+
+		const result = await readArtifact(tmpDir, "task-rl", largeId)
+		expect(result.totalSize).toBe(threshold + 500)
+		// Default limit is 40KB, so full content is returned
+		expect(result.content.length).toBe(threshold + 500)
+	})
+
+	it("reads with offset skipping the first N bytes", async () => {
+		const text = "HEADER" + "X".repeat(threshold + 500)
+		const artifactId = "mcp-read-offset.txt"
+		await maybeTruncateToolOutput(text, artifactId, "task-ro", tmpDir)
+
+		const result = await readArtifact(tmpDir, "task-ro", artifactId, 6, 100)
+		expect(result.content).toBe("X".repeat(100))
+		expect(result.totalSize).toBe(6 + threshold + 500)
+	})
+
+	it("reads with limit smaller than file size", async () => {
+		const text = "Y".repeat(threshold + 1000)
+		const artifactId = "mcp-read-limit.txt"
+		await maybeTruncateToolOutput(text, artifactId, "task-rlim", tmpDir)
+
+		const result = await readArtifact(tmpDir, "task-rlim", artifactId, 0, 256)
+		expect(result.content.length).toBe(256)
+		expect(result.content).toBe("Y".repeat(256))
 	})
 })

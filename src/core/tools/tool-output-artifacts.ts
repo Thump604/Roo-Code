@@ -3,6 +3,12 @@
  *
  * Shared between UseMcpToolTool and ExecuteCommandTool so that tests
  * exercise the real production code path instead of duplicating logic.
+ *
+ * Preview policy: HEAD-ONLY. The preview is the first N bytes of the
+ * output. This is deliberate — MCP tool results are typically structured
+ * data where the beginning contains schema/header information most useful
+ * for the model. Tail-aware preview (head + tail split) is deferred to
+ * the generalized ArtifactStore design.
  */
 
 import * as fs from "fs/promises"
@@ -15,6 +21,19 @@ import { getTaskDirectoryPath } from "../../utils/storage"
 export interface TruncationResult {
 	preview: string
 	truncated: boolean
+}
+
+/** Monotonic counter to prevent artifact ID collisions within a process. */
+let artifactCounter = 0
+
+/**
+ * Generate a collision-resistant MCP artifact ID.
+ *
+ * Combines the execution timestamp with a monotonic counter so two MCP
+ * tool calls in the same millisecond get distinct file names.
+ */
+export function generateMcpArtifactId(executionId: string): string {
+	return `mcp-${executionId}-${artifactCounter++}.txt`
 }
 
 /**
@@ -57,8 +76,8 @@ export async function maybeTruncateToolOutput(
 		return { preview: text, truncated: false }
 	}
 
-	// Build byte-safe preview: encode to UTF-8 bytes, slice to budget,
-	// then decode back. This respects the byte budget regardless of
+	// Build byte-safe preview (HEAD-ONLY): encode to UTF-8 bytes, slice to
+	// budget, then decode back. This respects the byte budget regardless of
 	// character width (CJK, emoji, etc.).
 	const fullBuffer = Buffer.from(text, "utf-8")
 	const previewBuffer = fullBuffer.subarray(0, previewBytesBudget)
@@ -71,4 +90,32 @@ export async function maybeTruncateToolOutput(
 
 	const marker = `\n\n[Truncated: ${textBytes} bytes total. Use read_command_output with artifact_id="${artifactId}" to read the full output.]`
 	return { preview: previewText + marker, truncated: true }
+}
+
+/**
+ * Read a persisted artifact with optional offset and limit (byte-based).
+ *
+ * This mirrors what ReadCommandOutputTool does internally, exported as a
+ * testable helper. Returns the content slice as a UTF-8 string.
+ */
+export async function readArtifact(
+	globalStoragePath: string,
+	taskId: string,
+	artifactId: string,
+	offset = 0,
+	limit = 40 * 1024,
+): Promise<{ content: string; totalSize: number }> {
+	const taskDir = await getTaskDirectoryPath(globalStoragePath, taskId)
+	const artifactPath = path.join(taskDir, "command-output", artifactId)
+	const stat = await fs.stat(artifactPath)
+	const totalSize = stat.size
+
+	const fd = await fs.open(artifactPath, "r")
+	try {
+		const buf = Buffer.alloc(Math.min(limit, totalSize - offset))
+		const { bytesRead } = await fd.read(buf, 0, buf.length, offset)
+		return { content: buf.subarray(0, bytesRead).toString("utf-8"), totalSize }
+	} finally {
+		await fd.close()
+	}
 }
