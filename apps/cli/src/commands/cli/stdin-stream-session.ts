@@ -17,6 +17,8 @@ import { isRecord } from "@/lib/utils/guards.js"
 
 import { classifyAsk, shouldRouteAsAskResponse, sendApprovalResponse } from "@/agent/approval-adapter.js"
 
+import type { HookManager } from "@/core/hooks/index.js"
+
 import { StdinStreamApprovalAdapter } from "./stdin-stream-approval-adapter.js"
 import { isCancellationLikeError, isExpectedControlFlowError, isNoActiveTaskLikeError } from "./cancellation.js"
 
@@ -40,6 +42,7 @@ export interface StdinStreamSessionOptions {
 	jsonEmitter: JsonEventEmitter
 	setStreamRequestId: (id: string | undefined) => void
 	isShuttingDown: () => boolean
+	hookManager?: HookManager
 }
 
 /**
@@ -693,9 +696,53 @@ export class StdinStreamSession {
 			return
 		}
 
-		// Push into the approval adapter — emits approval_request event
-		// and waits for explicit approve/reject/respond or implicit message.
-		// The response is dispatched to the session controller.
+		// Check before_tool hooks if a hook manager is configured.
+		// If a hook denies, auto-reject and emit a structured denial.
+		const hookManager = this.options.hookManager
+		const isToolAsk = request.ask === "tool" || request.ask === "command" || request.ask === "use_mcp_server"
+
+		if (hookManager && hookManager.hookCount > 0 && isToolAsk) {
+			void hookManager
+				.runBeforeTool({
+					ask: request.ask,
+					tool: request.message.text || "",
+				})
+				.then((hookResult) => {
+					if (!hookResult.allowed) {
+						// Hook denied — reject the ask and emit structured denial
+						this.options.jsonEmitter.emitRawEvent({
+							type: "control",
+							subtype: "error",
+							code: "hook_denied",
+							content: hookResult.reason || "denied by before_tool hook",
+							success: false,
+						})
+						this.options.sessionController.reject()
+						return
+					}
+
+					// Hook allowed — proceed to approval adapter
+					this.forwardToApprovalAdapter(request)
+				})
+				.catch(() => {
+					// Hook execution failed — fail closed, reject the ask
+					this.options.jsonEmitter.emitRawEvent({
+						type: "control",
+						subtype: "error",
+						code: "hook_error",
+						content: "before_tool hook failed — action blocked (fail-closed)",
+						success: false,
+					})
+					this.options.sessionController.reject()
+				})
+			return
+		}
+
+		// No hooks — proceed directly to approval adapter
+		this.forwardToApprovalAdapter(request)
+	}
+
+	private forwardToApprovalAdapter(request: import("@/agent/approval-adapter.js").ApprovalRequest): void {
 		this.approvalAdapter.handle(request).then(
 			(response) => {
 				sendApprovalResponse(

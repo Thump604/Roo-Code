@@ -10,6 +10,9 @@ import {
 } from "@/runtime/index.js"
 import { isValidOutputFormat } from "@/types/json-events.js"
 
+import { TaskIndex } from "@/core/task-index/index.js"
+import { getConfigDir } from "@/lib/storage/config-dir.js"
+
 import { isExpectedControlFlowError } from "./cancellation.js"
 import { createNonInteractiveSessionLifecycle } from "./noninteractive-session-lifecycle.js"
 import { runStdinStreamMode } from "./stdin-stream.js"
@@ -243,6 +246,7 @@ export async function runNonInteractiveCliSession({
 			runtimeOptions,
 		})
 		const activeSessionController = sessionController
+		const taskIndex = new TaskIndex(getConfigDir())
 		sessionLifecycle = createNonInteractiveSessionLifecycle({
 			useJsonOutput,
 			jsonEmitter,
@@ -250,6 +254,10 @@ export async function runNonInteractiveCliSession({
 			exitOnError: runtimeOptions.exitOnError,
 			stdinPromptStream: useStdinPromptStream,
 			bootstrapResumeForStdinStream,
+			taskIndex,
+			workspacePath: runtimeOptions.workspacePath,
+			model: runtimeOptions.model,
+			provider: runtimeOptions.provider,
 		})
 
 		await activeSessionController.start(

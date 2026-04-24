@@ -73,12 +73,17 @@ function makeMockSessionController(initialState: AgentStateInfo) {
 	}
 }
 
-function createSession(controller: CliSessionController, emitter: JsonEventEmitter): StdinStreamSession {
+function createSession(
+	controller: CliSessionController,
+	emitter: JsonEventEmitter,
+	hookManager?: import("@/core/hooks/index.js").HookManager,
+): StdinStreamSession {
 	return new StdinStreamSession({
 		sessionController: controller,
 		jsonEmitter: emitter,
 		setStreamRequestId: vi.fn(),
 		isShuttingDown: () => false,
+		hookManager,
 	})
 }
 
@@ -383,5 +388,103 @@ describe("StdinStreamSession — approval protocol integration", () => {
 		expect(approvals[1]!.payload).toBe('{"tool":"write_to_file","path":"/b.ts","content":"hello"}')
 		expect(approvals[0]!.approvalId).toBe(firstApprovalId)
 		expect(approvals[1]!.approvalId).toBe(secondApprovalId)
+	})
+})
+
+// =============================================================================
+// Integration: hook-wired approval flow
+// =============================================================================
+
+describe("StdinStreamSession — hook integration", () => {
+	function makeDenyHookManager() {
+		return {
+			hookCount: 1,
+			isLoaded: true,
+			runBeforeTool: vi.fn().mockResolvedValue({
+				allowed: false,
+				reason: "blocked by test hook",
+				hookErrors: [],
+			}),
+		} as unknown as import("@/core/hooks/index.js").HookManager
+	}
+
+	function makeAllowHookManager() {
+		return {
+			hookCount: 1,
+			isLoaded: true,
+			runBeforeTool: vi.fn().mockResolvedValue({
+				allowed: true,
+				hookErrors: [],
+			}),
+		} as unknown as import("@/core/hooks/index.js").HookManager
+	}
+
+	it("before_tool deny blocks tool and emits hook_denied", async () => {
+		const { emitter, events } = makeMockEmitter()
+		const hookManager = makeDenyHookManager()
+		const toolMsg = makeAskMessage("tool", '{"tool":"read_file"}', 9001)
+		const { controller } = makeMockSessionController(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 9001, lastMessage: toolMsg }),
+		)
+		const session = createSession(controller, emitter, hookManager)
+
+		sendStateMessage(session)
+
+		// Give async hook execution time to complete
+		await new Promise((r) => setTimeout(r, 50))
+
+		// Should have emitted hook_denied error
+		const deniedEvents = events.filter((e) => e.code === "hook_denied")
+		expect(deniedEvents).toHaveLength(1)
+		expect(deniedEvents[0]!.content).toContain("blocked by test hook")
+
+		// Should NOT have emitted approval_request — hook blocked before adapter
+		const approvalEvents = events.filter((e) => e.subtype === "approval_request")
+		expect(approvalEvents).toHaveLength(0)
+
+		// Controller.reject should have been called
+		const mockController = controller as unknown as { reject: ReturnType<typeof vi.fn> }
+		expect(mockController.reject).toHaveBeenCalledTimes(1)
+	})
+
+	it("before_tool allow proceeds to approval_request", async () => {
+		const { emitter, events } = makeMockEmitter()
+		const hookManager = makeAllowHookManager()
+		const toolMsg = makeAskMessage("tool", '{"tool":"read_file"}', 9002)
+		const { controller } = makeMockSessionController(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 9002, lastMessage: toolMsg }),
+		)
+		const session = createSession(controller, emitter, hookManager)
+
+		sendStateMessage(session)
+
+		await new Promise((r) => setTimeout(r, 50))
+
+		// Should have emitted approval_request — hook allowed
+		const approvalEvents = events.filter((e) => e.subtype === "approval_request")
+		expect(approvalEvents).toHaveLength(1)
+
+		// No hook_denied
+		const deniedEvents = events.filter((e) => e.code === "hook_denied")
+		expect(deniedEvents).toHaveLength(0)
+
+		session.approvalAdapter.dispose()
+	})
+
+	it("no hookManager means no hook check — direct to approval_request", () => {
+		const { emitter, events } = makeMockEmitter()
+		const toolMsg = makeAskMessage("tool", '{"tool":"read_file"}', 9003)
+		const { controller } = makeMockSessionController(
+			makeAgentState({ isWaitingForInput: true, currentAsk: "tool", lastMessageTs: 9003, lastMessage: toolMsg }),
+		)
+		// No hookManager passed
+		const session = createSession(controller, emitter)
+
+		sendStateMessage(session)
+
+		const approvalEvents = events.filter((e) => e.subtype === "approval_request")
+		expect(approvalEvents).toHaveLength(1)
+
+		session.approvalAdapter.dispose()
 	})
 })
